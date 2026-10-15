@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TF Pair Miner</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header>
+  <div class="brand"><b>TF Pair Miner</b><span>TF-pair × cell-context candidates from CELLxGENE Census</span></div>
+  <input id="q" type="search" placeholder="Search a TF (FOXA2), a pair (FOXA2:HNF4A) or a cell type (cholangiocyte)…" autocomplete="off">
+  <select id="run" title="Published run"></select><nav><button data-mode="visual" class="on">Visual</button><button data-mode="science">Scientific</button><button data-mode="info">Run info</button></nav>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main id="app"><p class="muted">Loading data…</p></main>
+<footer>Candidates are co-expression associations, not verified interactions. Absence of a recorded prior is not evidence of no interaction. Code: <a href="https://github.com/double2strand/TFpairminer">double2strand/TFpairminer</a></footer>
+<script src="app.js"></script>
+</body></html>

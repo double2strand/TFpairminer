@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# tfpm — TF pair miner: setup, mine (wr or local), status, publish.
+# Settings come from env vars or ./tfpm.conf (KEY=value lines):
+#   TFPM_OUT (default: <repo>/run)   TFPM_CENSUS (2025-11-08)   TFPM_SHARDS (100)
+#   TFPM_TF_SET (exploratory)        TFPM_PYTHON (python3.12/3.11 auto)  TFPM_WR_MEM (32G)
+#   TFPM_WR_TIME (24h)  TFPM_WR_CPUS (4)  TFPM_WR_QUEUE (optional LSF queue)
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+[ -f "$ROOT/tfpm.conf" ] && . "$ROOT/tfpm.conf"
+OUT="$(readlink -m "${TFPM_OUT:-$ROOT/run}")"
+CENSUS="${TFPM_CENSUS:-2025-11-08}"
+SHARDS="${TFPM_SHARDS:-100}"
+TF_SET="${TFPM_TF_SET:-exploratory}"
+VENV="$ROOT/.venv"; PY="$VENV/bin/python"
+MINER="$ROOT/mining/tf_census.py"
+COMP="$ROOT/compendium"
+die(){ echo "tfpm: $*" >&2; exit 1; }
+usage(){ cat <<U
+Usage:
+  tfpm setup [compendium.xlsx]          venv + deps + tests + TSV export + Census plan
+  tfpm mine --runner wr|local [--parallel N] [--pilot] [-- extra tf_census.py run options]
+  tfpm status                           progress (wr queue or local logs) + datasets done
+  tfpm publish [--run DIR] [--label T]  validate -> aggregate if needed -> versioned JSON -> git commit + push
+  tfpm aggregate                        (run automatically by mine; re-aggregates safely)
+Output dir: $OUT   Census: $CENSUS   Shards: $SHARDS
+U
+}
+shard_cmd(){ echo "$PY $MINER run --out $OUT --num-shards $SHARDS --shard-index $1 --batch-size 1000 --tmpdir \"\${TMPDIR:-/tmp}\""; }
+
+cmd_setup(){
+  local x="${1:-}"
+  if [ ! -x "$PY" ]; then
+    local base="${TFPM_PYTHON:-}"
+    if [ -z "$base" ]; then for c in python3.12 python3.11 python3; do command -v "$c" >/dev/null && { base="$c"; break; }; done; fi
+    [ -n "$base" ] || die "no python found; set TFPM_PYTHON=/path/to/python3.12"
+    "$base" -c 'import sys; assert sys.version_info[:2] in ((3,11),(3,12)), sys.version' 2>/dev/null \
+      || echo "tfpm: warning: $base is not Python 3.11/3.12 (tested versions); continuing" >&2
+    "$base" -m venv "$VENV"
+  fi
+  "$PY" -m pip install -q --upgrade pip
+  "$PY" -m pip install -q -r "$ROOT/mining/requirements.txt"
+  (cd "$ROOT/mining" && "$PY" -m unittest -q test_tf_census)
+  if [ -n "$x" ]; then "$PY" "$ROOT/scripts/export_compendium.py" "$x" --outdir "$COMP"; fi
+  [ -f "$COMP/gene_register.tsv" ] || die "no compendium TSVs; run: tfpm setup /path/to/compendium.xlsx"
+  if [ -f "$OUT/manifest.json" ]; then echo "Plan already exists in $OUT (kept for provenance)."; else
+    "$PY" "$MINER" plan --register "$COMP/gene_register.tsv" --out "$OUT" --census-version "$CENSUS" --tf-set "$TF_SET"
+  fi
+  echo "Setup done. Next: tfpm mine --runner wr   (or --runner local)"
+}
+
+cmd_aggregate(){
+  [ -f "$OUT/manifest.json" ] || die "no plan in $OUT; run tfpm setup"
+  if [ -d "$OUT/aggregate" ]; then mv "$OUT/aggregate" "$OUT/aggregate.old.$(date +%Y%m%d-%H%M%S)"; fi
+  "$PY" "$MINER" aggregate --out "$OUT" --interaction-priors "$COMP/interaction_priors.tsv"
+}
+
+cmd_mine(){
+  local runner="" par=6 extra=""
+  while [ $# -gt 0 ]; do case "$1" in
+    --runner) runner="$2"; shift 2;; --parallel|-P) par="$2"; shift 2;;
+    --pilot) extra="$extra --min-cells 20 --max-strata 1"; shift;;
+    --) shift; extra="$extra $*"; break;; *) die "unknown option $1";; esac; done
+  extra="${TFPM_RUN_ARGS:-} $extra"
+  [ -f "$OUT/manifest.json" ] || die "no plan in $OUT; run tfpm setup first"
+  mkdir -p "$OUT/logs"
+  local jobs="$OUT/jobs.txt"; : > "$jobs"
+  for ((i=0;i<SHARDS;i++)); do echo "$(shard_cmd $i) $extra" >> "$jobs"; done
+  case "$runner" in
+    wr)
+      command -v wr >/dev/null || die "wr not on PATH"
+      wr manager status >/dev/null 2>&1 || die "no wr manager running; start it with: wr manager start"
+      local q=(); [ -n "${TFPM_WR_QUEUE:-}" ] && q=(--queue "$TFPM_WR_QUEUE")
+      # -i is wr's reporting group (alias of --rep_grp); -e = --dep_grps; -d = --deps
+      wr add -f "$jobs" -i tfpm-mine -e tfpm_shards -m "${TFPM_WR_MEM:-32G}" -t "${TFPM_WR_TIME:-24h}" \
+         --cpus "${TFPM_WR_CPUS:-4}" -r 3 "${q[@]}"
+      echo "$ROOT/tfpm aggregate" | wr add -i tfpm-aggregate -d tfpm_shards -m 16G -t 4h -r 1 "${q[@]}"
+      echo "Queued $SHARDS shard jobs + 1 dependent aggregate job. Check with: tfpm status";;
+    local)
+      echo "local $par $(date -Is)" > "$OUT/logs/local.started"
+      nohup bash -c "seq 0 $((SHARDS-1)) | xargs -P $par -I{} bash -c '$(shard_cmd {}) $extra > $OUT/logs/shard_{}.log 2>&1 && echo {} >> $OUT/logs/shards.done || echo {} >> $OUT/logs/shards.failed'; '$ROOT/tfpm' aggregate > $OUT/logs/aggregate.log 2>&1 && touch $OUT/logs/local.finished" \
+        > "$OUT/logs/local.log" 2>&1 &
+      echo "Started $SHARDS shards locally, $par in parallel (pid $!). Safe to log out. Check with: tfpm status";;
+    *) die "use --runner wr or --runner local";;
+  esac
+}
+
+cmd_status(){
+  [ -f "$OUT/datasets.tsv" ] || die "no plan in $OUT"
+  local planned done_; planned=$(( $(wc -l < "$OUT/datasets.tsv") - 1 ))
+  done_=$(ls "$OUT"/datasets/*/_SUCCESS 2>/dev/null | wc -l)
+  echo "Datasets complete: $done_ / $planned   (output: $OUT)"
+  if command -v wr >/dev/null && wr manager status >/dev/null 2>&1; then
+    wr status -i tfpm-mine -o s 2>/dev/null || true
+    wr status -i tfpm-aggregate -o s 2>/dev/null || true
+    echo "Failed shards: wr status -i tfpm-mine -b   |  retry: wr retry -i tfpm-mine -b"
+  fi
+  if [ -f "$OUT/logs/local.started" ]; then
+    echo "Local shards finished: $(cat "$OUT/logs/shards.done" 2>/dev/null | wc -l) / $SHARDS, failed: $(cat "$OUT/logs/shards.failed" 2>/dev/null | wc -l)"
+    [ -f "$OUT/logs/local.finished" ] && echo "Local run + aggregate finished."
+  fi
+  [ -f "$OUT/aggregate/summary.json" ] && { echo "Aggregate summary:"; cat "$OUT/aggregate/summary.json"; }
+  return 0
+}
+
+cmd_publish(){
+  local label="" run="$OUT" latest=""
+  while [ $# -gt 0 ]; do case "$1" in
+    --label) label="$2"; shift 2;; --run) run="$(readlink -m "$2")"; shift 2;; --no-latest) latest="--no-latest"; shift;;
+    *) die "unknown option $1";; esac; done
+  [ -f "$run/manifest.json" ] || die "no run at $run"
+  [ -f "$run/aggregate/summary.json" ] || OUT="$run" cmd_aggregate
+  "$PY" "$ROOT/scripts/export_site.py" --run "$run" --site-data "$ROOT/docs/data" \
+        --priors "$COMP/interaction_priors.tsv" --label "$label" $latest
+  cd "$ROOT"; git add docs/data
+  git commit -q -m "Publish mining run $(basename "$run") ($(date +%F))${label:+: $label}" || { echo "Nothing new to publish."; return 0; }
+  git pull -q --rebase && git push -q && echo "Published. The site updates in ~1 minute: https://double2strand.github.io/TFpairminer/"
+}
+
+case "${1:-}" in
+  setup) shift; cmd_setup "$@";; mine) shift; cmd_mine "$@";; status) cmd_status;;
+  publish) shift; cmd_publish "$@";; aggregate) cmd_aggregate;; *) usage;;
+esac
