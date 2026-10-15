@@ -129,6 +129,12 @@ cmd_publish(){
   "$PY" "$ROOT/scripts/export_site.py" --run "$run" --site-data "$ROOT/docs/data" \
         --priors "$COMP/interaction_priors.tsv" --label "$label" $latest
   [ -n "$embed" ] && cmd_embed --run "$run"
+  if ls "$run"/atac_catlas*/compiled/hits.npy >/dev/null 2>&1; then   # ATAC plots: cross-cluster stats, motifs, spacing
+    local rid; rid=$(cat "$run/aggregate/published_run_id")
+    "$PY" "$ROOT/scripts/atac_views.py" --run "$run" --site-run-dir "$ROOT/docs/data/runs/$rid" \
+      --catlas-h5ad "${TFPM_CATLAS_INPUTS:-$(dirname "$run")/catlas_inputs}/catlas_binary_atac.h5ad" \
+      ${TFPM_GENOME_FASTA:+--genome-fasta "$TFPM_GENOME_FASTA"} --fimo "${TFPM_FIMO:-fimo}" --bedtools "${TFPM_BEDTOOLS:-bedtools}" || die "atac views failed"
+  fi
   cd "$ROOT"; git add docs/data
   git commit -q -m "Publish mining run $(basename "$run") ($(date +%F))${label:+: $label}" || { echo "Nothing new to publish."; return 0; }
   git pull -q --rebase && git push -q && echo "Published. The site updates in ~1 minute: https://double2strand.github.io/TFpairminer/"

@@ -168,7 +168,9 @@ async function tfPage(tf) {
    ${plist.map((x, i) => `<tr><td>${i + 1}</td><td><a onclick="go('pair/${esc(tf)}:${esc(x.o)}')">${esc(x.o)}</a></td><td class="n">${fmt(sig(x.best))}</td><td class="n">${fmt(x.best.primary_r ?? x.best.r)}</td><td>${[...new Set(x.ps.map(p => p.ct))].map(esc).join(", ")}</td><td>${x.ps.some(p => p.prior) ? '<span class="pill">yes</span>' : ""}</td><td>${repCell(x.best)}</td><td>${atacCell(x.best)}</td></tr>`).join("") || '<tr><td colspan="8" class="muted">No passing partners in this run</td></tr>'}</table></div></div>
    <div class="card"><h2>Partner × cell-type dot plot</h2><div id="dot" class="plot"></div></div></div>
    <div class="grid"><div class="card"><h2>${esc(tf)} detection by cell context</h2><div id="bar" class="plot"></div></div><div class="card"><h2>${esc(tf)} on UMAP</h2><div id="um" class="plot"></div><div id="umn"></div></div></div>
+   <div id="atacTF"></div>
    <div class="card"><h2>All rows</h2>${pairTable(P)}</div>`;
+  atacTF(tf).catch(console.error);
   if (P.length) { const y = P.map(p => short(p.st)); Plotly.newPlot("dot", [{type: "scatter", mode: "markers", x: P.map(p => p.tf1 === tf ? p.tf2 : p.tf1), y,
       marker: {size: P.map(p => 6 + Math.min(24, -Math.log10(Math.max(sig(p), 1e-300)) * 1.5)), color: P.map(p => p.primary_r ?? p.r), colorscale: "Reds", showscale: true, colorbar: {title: "r", thickness: 8}, line: {width: P.map(p => p.prior ? 2 : 0), color: "#16a34a"}},
       text: P.map(p => `${p.tf1}:${p.tf2}<br>${short(p.st)}<br>r ${fmt(p.primary_r ?? p.r)}, q ${fmt(sig(p))}`), hoverinfo: "text"}],
@@ -190,8 +192,9 @@ async function ctPage(i) {
    <div class="stats" style="margin-top:8px">${stat(P.length, "candidate pairs")}${stat(new Set(P.flatMap(p => [p.tf1, p.tf2])).size, "TFs involved")}${stat(P.filter(p => p.prior).length, "with literature prior")}</div>${layerBadges()}</div>
    <div class="grid"><div class="card"><h2>Pair network</h2><div id="net"></div></div><div class="card"><h2>Most detected TFs here</h2><div id="bar" class="plot"></div></div></div>
    <div class="card"><h2>Where these cells sit</h2><div id="um" class="plot"></div><div id="umn"></div></div>
+   <div id="atacCT"></div>
    <div class="card"><h2>Pairs ranked (q, then r)</h2>${pairTable(P)}</div>`;
-  network($("#net"), P);
+  network($("#net"), P); atacCT(st, P).catch(console.error);
   const prof = sh.profile.slice(0, 30);
   Plotly.newPlot("bar", [{type: "bar", orientation: "h", y: prof.map(r => r[0]), x: prof.map(r => r[1] * 100), marker: {color: "#7c3aed"}, hovertemplate: "%{y}: %{x:.1f}%<extra></extra>"}],
     {margin: {l: 80, r: 10, t: 10, b: 40}, height: 60 + 20 * prof.length, xaxis: {title: "% cells detecting"}, yaxis: {autorange: "reversed"}}, PL);
@@ -214,12 +217,13 @@ async function pairPage(arg) {
    <tr><td>Literature / physical prior</td><td><span class="badge ${best && best.prior ? "b-done" : "b-todo"}">${best && best.prior ? "recorded" : "none recorded"}</span></td><td>${best && best.prior ? `${esc(best.prior_evidence)}; ${esc(best.prior_classes)}; Pair_ID ${esc(best.pair_id || "–")}; PMIDs ${(best.pmids || "").split(" | ").filter(Boolean).slice(0, 8).map(x => `<a href="https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(x)}/" target="_blank" rel="noopener">${esc(x)}</a>`).join(" ")}` : "Not recorded in the compendium. That doesn't mean the pair doesn't interact."}</td></tr>
    ${repRow(P)}
    ${atacRow(P)}</table></div>
-   ${atacPanel(P)}
+   ${atacPanel(P)}<div id="atacPair"></div>
    ${repTable(P)}
    <div class="card"><h2>All evidence rows</h2>${P.length ? pairTable(P) : '<p class="muted">none</p>'}</div>
    <div class="card"><h2>Detection by cell context</h2><div id="det" class="plot"></div></div>
    <div class="card"><h2>Per-cell expression</h2><div id="embsel"></div><div class="grid3"><div id="uA" class="plot"></div><div id="uB" class="plot"></div><div id="uC" class="plot"></div></div><div id="umn"></div>
    <div class="grid"><div id="vio" class="plot"></div><div id="sc" class="plot"></div></div></div>`;
+  atacPair(A.tf, B.tf, P).catch(console.error);
   const pa = new Map(sa.profile.map(r => [r[0], r[1]])), pb = new Map(sb.profile.map(r => [r[0], r[1]]));
   const ss = [...new Set([...pa.keys(), ...pb.keys()])].sort((x, y) => ((pa.get(y) || 0) + (pb.get(y) || 0)) - ((pa.get(x) || 0) + (pb.get(x) || 0))).slice(0, 30);
   const hit = new Set(P.map(p => p.s)); const yl = ss.map(s => (hit.has(s) ? "★ " : "") + short(D.ST[s]));
@@ -322,3 +326,91 @@ function about() {
    <p class="muted">Full details: <a href="https://github.com/double2strand/TFpairminer#readme">README</a> · <a href="https://github.com/double2strand/TFpairminer/blob/main/mining/METHOD.md">METHOD</a></p></div>`;
 }
 boot();
+
+/* ---------- scATAC level B plots (CATlas; data from scripts/atac_views.py) ---------- */
+const atacIdx = () => (D.cache["atacIdx" + D.runId] ||= fetch(base() + "atac/index.json", {cache: "no-cache"}).then(r => r.ok ? r.json() : null).catch(() => null));
+const atacPairFile = async (a, b) => { const ix = await atacIdx(); if (!ix) return null; const e = ix.pairs.find(p => (p.a === a && p.b === b) || (p.a === b && p.b === a)); return e ? J(base() + "atac/pairs/" + e.file) : null; };
+const tierLabel = t => t === "proxy_fetal" ? "PROXY (fetal)" : t === "exact_reviewed" ? "EXACT (reviewed)" : t && t.startsWith("proxy") ? "PROXY" : t ? "provisional" : "unmapped";
+const tierBadge = t => `<span class="badge ${t && t.startsWith("proxy") ? "b-proxy" : t === "exact_reviewed" ? "b-rep" : "b-todo"}">${esc(tierLabel(t))}</span>`;
+function logoSVG(pfm, title) {
+  const W = 22, H = 70, col = {A: "#16a34a", C: "#2563eb", G: "#f59e0b", T: "#dc2626"};
+  const cols = pfm.map((p, i) => { const ic = 2 + p.reduce((s, x) => s + (x > 0 ? x * Math.log2(x) : 0), 0);
+    let y = H; return ["A", "C", "G", "T"].map((L, k) => [L, p[k] * ic]).sort((a, b) => a[1] - b[1]).map(([L, h]) => { const hh = h / 2 * H; y -= hh;
+      return hh < 0.5 ? "" : `<text x="0" y="0" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="100" style="fill:${col[L]};font-size:100px" transform="translate(${i * W},${y + hh}) scale(${W / 68},${hh / 72})">${L}</text>`; }).join(""); }).join("");
+  return `<div class="logo"><div class="muted">${esc(title)}</div><svg width="${pfm.length * W + 4}" height="${H + 4}" viewBox="0 0 ${pfm.length * W + 4} ${H + 4}">${cols}<line x1="0" y1="${H}" x2="${pfm.length * W}" y2="${H}" stroke="#999"/></svg></div>`;
+}
+async function atacPair(a, b, P) {
+  const el = $("#atacPair"); if (!el) return; const d = await atacPairFile(a, b); const ix = await atacIdx();
+  if (!d) { if (atacDone()) el.innerHTML = `<div class="card"><h2>RNA × ATAC</h2><p class="muted">No CATlas motif scan for this pair in this run (only Tabula Sapiens–replicated pairs with direct JASPAR motifs are scanned; coverage-gap runs have no scan).</p></div>`; return; }
+  const M = await J(base() + "atac/motifs.json"); const mapped = d.mapped[0]; const mi = mapped ? ix.clusters.indexOf(mapped.cluster) : -1;
+  const S = mi >= 0 ? d.clusters.find(c => c.c === mi) : null; const T = mapped ? tierLabel(mapped.tier) : "unmapped";
+  const amb = d.motif_similarity_max != null && d.motif_similarity_max >= 0.8;
+  el.innerHTML = `<div class="card"><h2>RNA × ATAC <span class="muted">(scATAC level B, ${esc(T)} CATlas cluster: ${esc(mapped ? mapped.cluster : "none")})</span></h2>
+   <p class="caveat"><b>Caveat.</b> ${esc(d.caveat)} ${mapped && mapped.tier.startsWith("proxy") ? "<b>The mapped cluster is a labelled PROXY; this is not adult validation.</b>" : ""}</p>
+   <div class="grid"><div><h3>RNA: detection per discovery context</h3><div id="rx1" class="plot"></div></div><div><h3>ATAC: motif hits in accessible vs matched inaccessible cCREs ${mapped ? tierBadge(mapped.tier) : ""}</h3><div id="rx2" class="plot"></div></div></div>
+   <div class="grid"><div><h3>Joint motif: observed / expected (lift)</h3><div id="rx3" class="plot"></div></div><div><h3>JASPAR motifs ${amb ? '<span class="badge b-no">near-identical motifs: joint hits may be one site</span>' : '<span class="badge b-done">distinct motifs</span>'}</h3>
+     <div class="logos">${d.motifs_a.map(m => logoSVG(M.motifs[m].pfm, `${a} · ${m}`)).join("")}${d.motifs_b.map(m => logoSVG(M.motifs[m].pfm, `${b} · ${m}`)).join("")}</div>
+     <p class="muted">Max motif similarity ${a}–${b}: <b>${fmt(d.motif_similarity_max)}</b> (${esc(M.similarity_method)}; ≥0.8 flags AP-1-type ambiguity).</p></div></div>
+   <h3>Which cell types' chromatin carries the pair? Joint-motif odds ratio across all ${ix.clusters.length} CATlas clusters</h3>
+   <p class="muted">Same matched test re-run for every cluster (BH q across clusters). Red = RNA-mapped cluster (${esc(T)}); others are context only, not validation. Marker size ∝ −log10 q; orange = fetal cluster.</p>
+   <label class="muted"><input type="checkbox" id="xall" style="width:auto"> show all clusters</label><div id="rx4" class="plot"></div>
+   ${d.spacing ? `<h3>Motif spacing within co-occurring accessible cCREs (${esc(d.spacing.cluster)}, ${esc(T)})</h3><p class="muted">${d.spacing.n_with_both} cCREs with both motifs (FIMO p<1e-4). ${(d.spacing.frac_overlapping_sites * 100).toFixed(1)}% have the nearest ${a} and ${b} sites < 4 bp apart, i.e. effectively the same site.</p><div class="grid"><div id="rx5" class="plot"></div><div id="rx6" class="plot"></div></div>` : ""}</div>`;
+  const R = P.filter(p => p.n_cells);
+  Plotly.newPlot("rx1", ["tf1_det", "tf2_det", "both"].map((k, j) => ({type: "bar", name: [P[0] ? P[0].tf1 : a, P[0] ? P[0].tf2 : b, "both (co-detected)"][j], x: R.map(p => `${p.ct} · ${p.assay}`), y: R.map(p => 100 * (k === "both" ? p.co_detected / p.n_cells : p[k])),
+    marker: {color: ["#2563eb", "#f97316", "#7c3aed"][j]}})), {barmode: "group", height: 320, margin: {l: 50, r: 10, t: 10, b: 90}, yaxis: {title: "% cells detecting"}, legend: {orientation: "h"}}, PL);
+  if (S && S.fa) {
+    const g = ["fa", "fb", "fj"], gb = ["ba", "bb_", "bj"], xl = [`${a} motif`, `${b} motif`, `${a}+${b} same cCRE`];
+    const tr = (keys, nm, c) => ({type: "bar", name: nm, x: xl, y: keys.map(k => 100 * S[k][0]), marker: {color: c}, error_y: {type: "data", symmetric: false, array: keys.map(k => 100 * (S[k][2] - S[k][0])), arrayminus: keys.map(k => 100 * (S[k][0] - S[k][1]))}});
+    Plotly.newPlot("rx2", [tr(g, `accessible in ${mapped.cluster} (n=${S.n})`, "#dc2626"), tr(gb, "matched inaccessible", "#94a3b8")], {barmode: "group", height: 320, margin: {l: 50, r: 10, t: 10, b: 60}, yaxis: {title: "% cCREs with motif (95% CI)"}, legend: {orientation: "h"},
+      annotations: [{x: xl[2], y: 100 * S.fj[2], text: `OR ${fmt(S.or_j)}, q ${fmt(S.q_j)}`, showarrow: false, yshift: 14}]}, PL);
+    Plotly.newPlot("rx3", [{type: "bar", x: ["accessible", "matched inaccessible"], y: [S.lift_fg, S.lift_bg], marker: {color: ["#dc2626", "#94a3b8"]}, text: [fmt(S.lift_fg), fmt(S.lift_bg)], textposition: "outside"}],
+      {height: 280, margin: {l: 50, r: 10, t: 10, b: 40}, yaxis: {title: "joint observed / (A × B) expected"}, shapes: [{type: "line", x0: -0.5, x1: 1.5, y0: 1, y1: 1, line: {dash: "dot", color: "#666"}}]}, PL);
+  } else { $("#rx2").innerHTML = '<p class="muted">No mapped (exact or proxy) CATlas cluster with enough matched cCREs.</p>'; $("#rx3").innerHTML = ""; }
+  const drawX = all => { const C = d.clusters.filter(c => c.or_j != null).sort((x, y) => y.or_j - x.or_j); let L = all ? C : C.slice(0, 30); if (S && S.or_j != null && !L.includes(S)) L = [...L, S];
+    const rankOf = S ? C.indexOf(S) + 1 : null;
+    Plotly.newPlot("rx4", [{type: "scatter", mode: "markers", y: L.map(c => ix.clusters[c.c] + (c === S ? ` ★ ${T}` : "")), x: L.map(c => c.or_j),
+      marker: {size: L.map(c => c === S ? 16 : 5 + Math.min(14, -Math.log10(Math.max(c.q_j || 1, 1e-300)) / 4)), line: {width: L.map(c => c === S ? 2 : 0), color: "#7f1d1d"}, color: L.map(c => c === S ? "#dc2626" : ix.stages[c.c] === "fetal" ? "#f97316" : "#64748b")},
+      text: L.map(c => `${ix.clusters[c.c]} (${ix.stages[c.c]})<br>joint OR ${fmt(c.or_j)}, q ${fmt(c.q_j)}<br>joint ${c.jf}/${c.n} acc vs ${c.jb}/${c.n} inacc<br>lift ${fmt(c.lift_fg)} vs ${fmt(c.lift_bg)}<br>${(c.acc_w * 100).toFixed(1)}% of all joint-motif distal cCREs accessible here`), hoverinfo: "text"}],
+      {height: 60 + 16 * L.length, margin: {l: 230, r: 10, t: 10, b: 40}, xaxis: {title: "joint same-cCRE motif odds ratio (accessible vs matched inaccessible)", type: "log"}, yaxis: {autorange: "reversed", automargin: true, tickfont: {size: 10}},
+      annotations: rankOf ? [{xref: "paper", yref: "paper", x: 0, y: -0.0, yanchor: "top", yshift: -40, xanchor: "left", text: `mapped cluster ranks ${rankOf} / ${C.length}`, showarrow: false, font: {color: "#dc2626"}}] : []}, PL); };
+  drawX(false); $("#xall").onchange = e => drawX(e.target.checked);
+  if (d.spacing) { const sp = d.spacing;
+    Plotly.newPlot("rx5", [{type: "bar", x: sp.dist_bins.slice(0, -1).map(x => x + 2.5), y: sp.dist_hist, marker: {color: "#7c3aed"}}], {title: {text: `nearest ${a}–${b} site distance (bp)`, font: {size: 13}}, height: 280, margin: {l: 50, r: 10, t: 30, b: 40}, xaxis: {title: "bp between motif centres"}, yaxis: {title: "cCREs"}}, PL);
+    Plotly.newPlot("rx6", [{type: "scatter", mode: "lines", name: a, x: sp.pos_bins.slice(0, -1).map(x => x + 5), y: sp.pos_a, line: {color: "#2563eb"}}, {type: "scatter", mode: "lines", name: b, x: sp.pos_bins.slice(0, -1).map(x => x + 5), y: sp.pos_b, line: {color: "#f97316", dash: "dot"}}],
+      {title: {text: "motif site positions relative to cCRE centre", font: {size: 13}}, height: 280, margin: {l: 50, r: 10, t: 30, b: 40}, xaxis: {title: "bp from centre"}, yaxis: {title: "sites"}, legend: {orientation: "h"}}, PL); }
+}
+async function atacTF(tf) {
+  const el = $("#atacTF"); const ix = await atacIdx(); if (!el || !ix) return;
+  const files = ix.pairs.filter(p => p.a === tf || p.b === tf); if (!files.length) return;
+  const ds = await Promise.all(files.map(p => J(base() + "atac/pairs/" + p.file)));
+  const partners = ds.map(d => d.tf_a === tf ? d.tf_b : d.tf_a);
+  const mappedIdx = new Set(ds.flatMap(d => d.mapped.map(m => ix.clusters.indexOf(m.cluster))).filter(i => i >= 0));
+  const maxBy = new Map(); ds.forEach(d => d.clusters.forEach(c => { if (c.or_j != null) maxBy.set(c.c, Math.max(maxBy.get(c.c) || 0, c.or_j)); }));
+  const top = [...maxBy.entries()].sort((x, y) => y[1] - x[1]).slice(0, 35).map(x => x[0]); mappedIdx.forEach(i => { if (!top.includes(i)) top.push(i); });
+  const z = top.map(ci => ds.map(d => { const c = d.clusters.find(c => c.c === ci); return c && c.or_j != null ? Math.log2(c.or_j) : null; }));
+  const tiers = [...new Set(ds.flatMap(d => d.mapped.map(m => m.tier)))];
+  el.innerHTML = `<div class="card"><h2>scATAC level B: CATlas cluster × partner (joint-motif odds ratio)</h2><p class="caveat">${esc(ix.caveat)} ★ = RNA-mapped cluster (${tiers.map(tierLabel).map(esc).join(", ") || "none"}); other clusters are context, not validation.</p><div id="tfheat" class="plot"></div></div>`;
+  Plotly.newPlot("tfheat", [{type: "heatmap", z, x: partners, y: top.map(ci => (mappedIdx.has(ci) ? "★ " : "") + ix.clusters[ci] + (ix.stages[ci] === "fetal" ? " (fetal)" : "")), colorscale: "YlOrRd", zmin: 0,
+    colorbar: {title: "log2 OR", thickness: 8}, hovertemplate: `%{y} × ${tf}:%{x}<br>log2 joint OR %{z:.2f}<extra></extra>`}],
+    {height: 120 + 18 * top.length, margin: {l: 230, r: 10, t: 10, b: 80}, xaxis: {tickangle: -45}, yaxis: {autorange: "reversed", tickfont: {size: 10}}}, PL);
+  document.getElementById("tfheat").on("plotly_click", e => go(`pair/${tf}:${e.points[0].x}`));
+}
+async function atacCT(st, P) {
+  const el = $("#atacCT"); const ix = await atacIdx(); if (!el || !atacDone()) return;
+  const L = (D.run.layers || {}).scatac || {}; const rv = ((L.exact || L.proxy_fetal || {}).mapping_review || []).find(r => r.cell_type_id === st.cell_type_id);
+  const maps = ix ? (ix.mapping[st.cell_type_id] || []) : [];
+  let html = `<div class="card"><h2>scATAC level B: CATlas mapping for ${esc(st.cell_type)}</h2><p class="caveat">${esc(L.caveat || "")}</p>
+    <table><tr><th>Exact adult CATlas cluster</th><th>Fetal-only counterpart</th><th>Mapped clusters used</th></tr><tr><td>${esc(rv ? rv.exact_ontology_clusters || "none" : "–")}</td><td>${esc(rv ? rv.fetal_only_clusters || "–" : "–")}</td><td>${maps.map(m => `${esc(m.cluster)} ${tierBadge(m.tier)}`).join(" ") || "none"}</td></tr></table>`;
+  if (ix && maps.length) {
+    const pairsHere = [...new Set(P.filter(p => p.atac_level && p.atac_level.status !== "not_tested").map(p => [p.tf1, p.tf2].sort().join(":")))];
+    const ds = (await Promise.all(pairsHere.map(k => atacPairFile(...k.split(":"))))).filter(Boolean);
+    const mi = ix.clusters.indexOf(maps[0].cluster);
+    const rows = ds.map(d => { const c = d.clusters.find(c => c.c === mi); const C = d.clusters.filter(x => x.or_j != null).sort((x, y) => y.or_j - x.or_j); return {k: `${d.tf_a}:${d.tf_b}`, c, rank: C.indexOf(c) + 1, n: C.length, sim: d.motif_similarity_max}; }).filter(r => r.c && r.c.or_j != null).sort((x, y) => y.c.or_j - x.c.or_j);
+    html += `<h3>Replicated pairs in ${esc(maps[0].cluster)} ${tierBadge(maps[0].tier)}</h3><div id="ctatac" class="plot"></div>`;
+    el.innerHTML = html + "</div>";
+    Plotly.newPlot("ctatac", [{type: "bar", orientation: "h", y: rows.map(r => r.k), x: rows.map(r => r.c.or_j), marker: {color: rows.map(r => r.sim >= 0.8 ? "#f59e0b" : "#dc2626")},
+      text: rows.map(r => `q ${fmt(r.c.q_j)} · rank ${r.rank}/${r.n} clusters${r.sim >= 0.8 ? " · similar motifs" : ""}`), textposition: "outside", hovertemplate: "%{y}<br>joint OR %{x:.2f}<br>%{text}<extra></extra>"}],
+      {height: 80 + 26 * rows.length, margin: {l: 110, r: 160, t: 10, b: 40}, xaxis: {title: `joint same-cCRE motif odds ratio in ${maps[0].cluster} (${tierLabel(maps[0].tier)}); amber = near-identical motifs`}, yaxis: {autorange: "reversed"}}, PL);
+    document.getElementById("ctatac").on("plotly_click", e => go("pair/" + e.points[0].y));
+  } else el.innerHTML = html + `<p class="muted">No CATlas cluster is mapped to this cell type, so no ATAC plots are shown (a coverage gap, not a negative result).</p></div>`;
+}

@@ -31,3 +31,5 @@ a.brand{color:#fff;text-decoration:none}.searchbox{position:relative;flex:1;min-
 .b-proxy{background:#ffedd5;color:#9a3412;border:1px dashed #f97316}.b-proxyno{background:#fff7ed;color:#9a3412;border:1px dashed #fdba74}
 .caveat{background:#fefce8;border-left:3px solid #eab308;padding:6px 10px;font-size:13px}.caveat.proxy{background:#fff7ed;border-color:#f97316}
 .card{overflow-x:auto}
+.logos{display:flex;flex-wrap:wrap;gap:12px}.logo{border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px}
+.logo svg text{font-size:100px}
