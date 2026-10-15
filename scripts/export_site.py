@@ -22,7 +22,8 @@ SCHEMA_VERSION = 2
 STRATUM = ["cell_type_id", "cell_type", "tissue_id", "tissue", "disease_id", "disease", "assay_id", "assay"]
 PCOLS = ["s", "tf1", "tf2", "n_datasets", "n_collections", "n_cells", "co_detected", "r", "lift", "donor_r",
          "primary_stat", "primary_r", "min_q", "k_meta", "meta_r", "meta_p", "meta_q", "tau2", "i2",
-         "prior", "prior_evidence", "prior_classes", "pmids", "pair_id", "tf1_det", "tf2_det"]
+         "prior", "prior_evidence", "prior_classes", "pmids", "pair_id", "tf1_det", "tf2_det",
+         "replication", "atac_level"]  # last two: future layers, null = not yet run
 SRC = {"n_datasets": "n_datasets_with_hit", "n_collections": "n_collections_with_hit", "n_cells": "n_cells_in_hit_datasets",
        "co_detected": "co_detected_cells", "r": "cell_r_weighted_by_cells", "lift": "mean_co_detection_lift",
        "donor_r": "mean_donor_r_when_available", "primary_stat": "primary_stat", "primary_r": "best_primary_r",
@@ -101,8 +102,15 @@ def main():
         "full" if summary.get("atlas_wide") else "pilot",
         hashlib.sha256(json.dumps([manifest.get("register_sha256"), manifest.get("n_datasets"), manifest.get("dataset_selection"), rc], sort_keys=True).encode()).hexdigest()[:8])
     out = Path(a.site_data) / "runs" / run_id
+    keep_embed = None
     if out.exists():
+        if (out / "embed").exists():
+            keep_embed = out.parent / f".{run_id}.embed.tmp"
+            shutil.rmtree(keep_embed, ignore_errors=True); shutil.move(str(out / "embed"), keep_embed)
+        old_info = json.loads((out / "run.json").read_text()) if (out / "run.json").exists() else {}
         shutil.rmtree(out)
+    else:
+        old_info = {}
     (out / "tf").mkdir(parents=True); (out / "ct").mkdir()
 
     feats = {r["ensembl_id"]: r for r in rows(run / "features.tsv")}
@@ -143,6 +151,7 @@ def main():
         row["pair_id"] = " | ".join(sorted(pair_ids.get(tuple(h), ())))
         d1, d2 = det.get((s, r["tf1_ensembl"])), det.get((s, r["tf2_ensembl"]))
         row["tf1_det"] = None if d1 is None else round(d1, 4); row["tf2_det"] = None if d2 is None else round(d2, 4)
+        row["replication"] = None; row["atac_level"] = None
         P.append([row[c] for c in PCOLS])
     # stable rank: collections desc, primary r desc
     ci, pi, ri = PCOLS.index("n_collections"), PCOLS.index("primary_r"), PCOLS.index("r")
@@ -197,7 +206,15 @@ def main():
             "manifest": manifest, "summary": summary, "positive_controls": controls,
             "counts": {"pair_rows": len(P), "unique_pairs": len({(x[1], x[2]) for x in P}), "strata": len(strata),
                        "tfs": len(tfs), "pairs_with_prior": sum(x[pr] for x in P)},
+            "layers": {"discovery_cellxgene": {"status": "done", "title": "CELLxGENE Census discovery"},
+                       "replication": {"status": "not_run", "title": "Replication (SCEA / Tabula Sapiens)", "column": "replication"},
+                       "scatac": {"status": "not_run", "title": "scATAC evidence (levels A-D)", "column": "atac_level", "levels": ["A", "B", "C", "D"]}},
             "profile_detection_floor": a.min_profile_detection, "top_n": a.top_n, "downloads": downloads}
+    if keep_embed is not None:
+        shutil.move(str(keep_embed), out / "embed")
+        if "embedding" in old_info:
+            info["embedding"] = old_info["embedding"]
+    info.setdefault("embedding", {"status": "not_run", "datasets": []})
     (out / "run.json").write_text(json.dumps(info, indent=1))
 
     idx_path = Path(a.site_data) / "runs" / "index.json"
@@ -210,6 +227,7 @@ def main():
         idx["latest"] = run_id
     idx["schema_version"] = SCHEMA_VERSION
     idx_path.write_text(json.dumps(idx, indent=1))
+    (agg / "published_run_id").write_text(run_id + "\n")
     print(json.dumps({"run_id": run_id, **info["counts"]}), "->", out)
 
 

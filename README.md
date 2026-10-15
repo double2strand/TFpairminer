@@ -2,7 +2,7 @@
 
 Mine candidate **functional TF pairs per cell type** from single-cell atlases, and browse them on a searchable site.
 
-**Site:** https://double2strand.github.io/TFpairminer/ — search a TF (`FOXA2`), a pair (`FOXA2:HNF4A`) or a cell type (`cholangiocyte`).
+**Site:** https://double2strand.github.io/TFpairminer/ (the app is in `docs/`, and the root `index.html` loads it too). Search a TF (`FOXA2`), a pair (`FOXA2:HNF4A`) or a cell type (`cholangiocyte`).
 - **Visual:** pair network, TF × cell-context heatmap, per-TF pages.
 - **Scientific:** a sortable, filterable table with cell r, donor r, lift, detection, co-detected cells, dataset and collection support, prior flag, Pair_ID and PMIDs. It also shows the thresholds and the Census release, and has TSV download.
 - **Run info:** provenance, which covers the manifest, the compendium hash, completion status and thresholds.
@@ -31,6 +31,9 @@ Notes
 
 ## Statistics (v2)
 The default primary statistic is a **metacell partial correlation**: within-donor metacells of 20 cells, adjusted for donor and log library size, with a t-test p-value and **BH q within each stratum**. Pseudobulk (donor-mean), residualised cell-level and the original raw cell-level r (`cell_raw`, v1) are also reported. Aggregation adds a **Fisher-z fixed and random-effects meta-analysis** across datasets with q-values, plus a **positive-control check** (MYC–MAX, JUN–FOS and others). Pass options through `tfpm`, for example `./tfpm mine --runner wr -- --primary-stat pseudobulk --max-q 0.1`, or set `TFPM_RUN_ARGS`. Details are in [mining/METHOD.md](mining/METHOD.md#v2-statistics-schema_version-2).
+
+## Per-cell layer (optional)
+`./tfpm embed [--run DIR] [--max-cells 8000]`, or `./tfpm publish --embed`, adds a UMAP and per-cell TF expression to the site. It covers each dataset in a published run, up to `--max-datasets` (default 20) and `--max-cells` per dataset, written as one file per dataset and per gene under `runs/<id>/embed/`. The UMAP is computed with scanpy on the Census-present compendium genes, because this Census release has no ready-made embeddings that we can use. It needs `scanpy` and `umap-learn` and is installed automatically.
 
 ## Publishing and versioning
 `./tfpm publish [--run DIR] [--label TEXT] [--no-latest]` runs these steps:

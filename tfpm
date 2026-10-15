@@ -21,6 +21,8 @@ Usage:
   tfpm mine --runner wr|local [--parallel N] [--pilot] [-- extra tf_census.py run options]
   tfpm status                           progress (wr queue or local logs) + datasets done
   tfpm publish [--run DIR] [--label T]  validate -> aggregate if needed -> versioned JSON -> git commit + push
+  tfpm embed [--run DIR] [--max-cells N] optional UMAP + per-cell TF expression layer for the site (then publish)
+  tfpm publish ... --embed              publish including the embedding layer
   tfpm aggregate                        (run automatically by mine; re-aggregates safely)
 Output dir: $OUT   Census: $CENSUS   Shards: $SHARDS
 U
@@ -103,20 +105,29 @@ cmd_status(){
 }
 
 cmd_publish(){
-  local label="" run="$OUT" latest=""
+  local label="" run="$OUT" latest="" embed=""
   while [ $# -gt 0 ]; do case "$1" in
-    --label) label="$2"; shift 2;; --run) run="$(readlink -m "$2")"; shift 2;; --no-latest) latest="--no-latest"; shift;;
+    --label) label="$2"; shift 2;; --run) run="$(readlink -m "$2")"; shift 2;; --no-latest) latest="--no-latest"; shift;; --embed) embed=1; shift;;
     *) die "unknown option $1";; esac; done
   [ -f "$run/manifest.json" ] || die "no run at $run"
   [ -f "$run/aggregate/summary.json" ] || OUT="$run" cmd_aggregate
   "$PY" "$ROOT/scripts/export_site.py" --run "$run" --site-data "$ROOT/docs/data" \
         --priors "$COMP/interaction_priors.tsv" --label "$label" $latest
+  [ -n "$embed" ] && cmd_embed --run "$run"
   cd "$ROOT"; git add docs/data
   git commit -q -m "Publish mining run $(basename "$run") ($(date +%F))${label:+: $label}" || { echo "Nothing new to publish."; return 0; }
   git pull -q --rebase && git push -q && echo "Published. The site updates in ~1 minute: https://double2strand.github.io/TFpairminer/"
 }
 
+cmd_embed(){
+  local run="$OUT" args=()
+  while [ $# -gt 0 ]; do case "$1" in --run) run="$(readlink -m "$2")"; shift 2;; *) args+=("$1"); shift;; esac; done
+  [ -f "$run/aggregate/published_run_id" ] || die "publish the run first (tfpm publish --run $run)"
+  "$PY" -c 'import scanpy' 2>/dev/null || "$PY" -m pip install -q scanpy umap-learn
+  "$PY" "$ROOT/scripts/embed_export.py" --run "$run" --site-data "$ROOT/docs/data" --run-id "$(cat "$run/aggregate/published_run_id")" "${args[@]}"
+}
+
 case "${1:-}" in
   setup) shift; cmd_setup "$@";; mine) shift; cmd_mine "$@";; status) cmd_status;;
-  publish) shift; cmd_publish "$@";; aggregate) cmd_aggregate;; *) usage;;
+  publish) shift; cmd_publish "$@";; aggregate) cmd_aggregate;; embed) shift; cmd_embed "$@";; *) usage;;
 esac

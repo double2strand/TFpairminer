@@ -20,3 +20,9 @@ svg text{font-size:10px;fill:#1d2330}.node circle{stroke:#fff;stroke-width:1.5}.
 .heat{overflow:auto;max-height:70vh}pre{background:#f3f4f6;padding:8px;border-radius:6px;overflow:auto;font-size:12px}
 .chips a{display:inline-block;margin:2px;padding:2px 8px;border-radius:12px;background:#eef2ff}
 #run{padding:6px;border-radius:6px;max-width:260px}.bar{display:inline-block;height:8px;background:#2563eb;border-radius:2px}
+a.brand{color:#fff;text-decoration:none}.searchbox{position:relative;flex:1;min-width:260px;display:flex}.searchbox input{flex:1}
+.ac{position:absolute;top:36px;left:0;right:0;background:#fff;color:#111;border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,.15);max-height:340px;overflow:auto;z-index:20}
+.ac div{padding:6px 10px;cursor:pointer;display:flex;justify-content:space-between}.ac div:hover,.ac div.sel{background:#eef2ff}.ac small{color:var(--muted)}
+.badge{display:inline-block;border-radius:10px;padding:1px 8px;font-size:11px;margin-right:4px}.b-done{background:#dcfce7;color:#166534}.b-todo{background:#f3f4f6;color:#6b7280;border:1px dashed #cbd5e1}
+.layers{margin-top:6px}.plot{width:100%;min-height:340px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}@media(max-width:1000px){.grid3{grid-template-columns:1fr}}
+.crumb{color:var(--muted);font-size:12px;margin-bottom:6px}.kv{display:flex;gap:14px;flex-wrap:wrap;font-size:13px}.kv span b{font-weight:600}
