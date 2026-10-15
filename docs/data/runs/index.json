@@ -1,0 +1,36 @@
+{
+ "schema_version": 2,
+ "latest": "2025-11-08_exploratory_pilot_25c84764",
+ "runs": [
+  {
+   "run_id": "2025-11-08_exploratory_pilot_25c84764",
+   "label": "Pilot v1 cell-level screen (cell_raw) \u00b7 liver cholangiocyte, 2 strata",
+   "pilot": true,
+   "exported_at": "2026-10-15T14:50:00+00:00",
+   "census": "2025-11-08",
+   "n_datasets": 1,
+   "pair_rows": 70,
+   "strata": 2
+  },
+  {
+   "run_id": "2025-11-08_exploratory_pilot_ee93a015",
+   "label": "Pilot v2 stats (metacell+BH) \u00b7 activated PBMC twins, 3 strata",
+   "pilot": true,
+   "exported_at": "2026-10-15T14:49:59+00:00",
+   "census": "2025-11-08",
+   "n_datasets": 1,
+   "pair_rows": 0,
+   "strata": 3
+  },
+  {
+   "run_id": "2025-11-08_exploratory_pilot_b5fa4b4c",
+   "label": "Pilot v2 stats (metacell+BH) \u00b7 liver cholangiocyte, 2 strata",
+   "pilot": true,
+   "exported_at": "2026-10-15T14:49:59+00:00",
+   "census": "2025-11-08",
+   "n_datasets": 1,
+   "pair_rows": 0,
+   "strata": 2
+  }
+ ]
+}

@@ -1,0 +1,1 @@
+{"cols":["cell_type_id","cell_type","tissue_id","tissue","disease_id","disease","assay_id","assay","n_cells","n_pair_rows"],"rows":[["CL:0002538","intrahepatic cholangiocyte","UBERON:0002107","liver","PATO:0000461","normal","EFO:0009899","10x 3' v2",375,0],["CL:0002538","intrahepatic cholangiocyte","UBERON:0002107","liver","PATO:0000461","normal","EFO:0011025","10x 5' v1",99,0]]}

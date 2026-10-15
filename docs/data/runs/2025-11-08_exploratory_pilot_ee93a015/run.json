@@ -1,0 +1,256 @@
+{
+ "schema_version": 2,
+ "run_id": "2025-11-08_exploratory_pilot_ee93a015",
+ "label": "Pilot v2 stats (metacell+BH) \u00b7 activated PBMC twins, 3 strata",
+ "pilot": true,
+ "exported_at": "2026-10-15T14:49:59+00:00",
+ "code_commit_at_export": "1a0efc6",
+ "source_run_dir": "/workspace/pilot_pbmc",
+ "warnings": [],
+ "manifest": {
+  "requested_census_version": "2025-11-08",
+  "resolved_census_version": "2025-11-08",
+  "register_sha256": "082cb01a41119f79e92aae6b18c2d1996c480092b5a8fb3d895d401ff374a3c2",
+  "register_path": "/workspace/TFpairminer/compendium/gene_register.tsv",
+  "tf_set": "exploratory",
+  "n_register_genes": 3874,
+  "n_with_ensembl_id": 3871,
+  "n_without_ensembl_id": 3,
+  "n_mapped_genes": 3868,
+  "n_tf_mapped": 1542,
+  "n_datasets": 1,
+  "dataset_selection": "explicit_ids",
+  "normalization": "log1p(10000 * raw_count / obs.raw_sum); raw_sum > 0",
+  "filters": "Homo sapiens; is_primary_data == True; cell type/tissue/disease/assay stratified"
+ },
+ "summary": {
+  "n_planned_datasets": 1,
+  "n_completed_datasets": 1,
+  "complete": true,
+  "atlas_wide": false,
+  "dataset_selection": "explicit_ids",
+  "run_config": {
+   "assay_ids": [],
+   "max_q": 0.05,
+   "max_strata": 3,
+   "metacell_size": 20,
+   "min_cells": 100,
+   "min_codetected": 25,
+   "min_detection": 0.05,
+   "min_donor_cells": 10,
+   "min_lift": 1.1,
+   "min_rho": 0.25,
+   "primary_stat": "metacell",
+   "schema_version": 2,
+   "store_min_r": 0.1,
+   "store_p": 0.01,
+   "top_k": 0
+  },
+  "schema_version": 2,
+  "n_candidate_rows": 0,
+  "positive_controls_recovered": 0,
+  "positive_controls_tested": 17
+ },
+ "positive_controls": [
+  {
+   "pair": "MYC-MAX",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "JUN-FOS",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "JUNB-FOS",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "JUN-ATF3",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "MAX-MXD4",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "HIF1A-ARNT",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "CLOCK-BMAL1",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "STAT1-STAT2",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "SMAD3-SMAD4",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "RELA-NFKB1",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "TCF3-TCF12",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "HNF1A-HNF4A",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "FOXA2-HNF4A",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "SPI1-CEBPA",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "GATA1-TAL1",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "PBX1-MEIS1",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  },
+  {
+   "pair": "SOX2-POU5F1",
+   "n_contexts_with_hit": "0",
+   "max_collections": "0",
+   "best_primary_r": "",
+   "min_q": ""
+  }
+ ],
+ "counts": {
+  "pair_rows": 0,
+  "unique_pairs": 0,
+  "strata": 3,
+  "tfs": 824,
+  "pairs_with_prior": 0
+ },
+ "layers": {
+  "discovery_cellxgene": {
+   "status": "done",
+   "title": "CELLxGENE Census discovery"
+  },
+  "replication": {
+   "status": "not_run",
+   "title": "Replication (SCEA / Tabula Sapiens)",
+   "column": "replication"
+  },
+  "scatac": {
+   "status": "not_run",
+   "title": "scATAC evidence (levels A-D)",
+   "column": "atac_level",
+   "levels": [
+    "A",
+    "B",
+    "C",
+    "D"
+   ]
+  }
+ },
+ "profile_detection_floor": 0.02,
+ "top_n": 3000,
+ "downloads": {
+  "cell_type_pair_candidates.tsv": "cell_type_pair_candidates.tsv",
+  "positive_controls.tsv": "positive_controls.tsv",
+  "manifest.json": "manifest.json",
+  "summary.json": "summary.json"
+ },
+ "embedding": {
+  "status": "done",
+  "datasets": [
+   {
+    "dataset_id": "d7d7e89c-c93a-422d-8958-9b4a90b69558",
+    "title": "Activated PBMCs - Twins scRNA-seq",
+    "n_cells": 8000,
+    "n_primary_cells": 16901,
+    "genes": [
+     "MYC",
+     "MAX",
+     "JUN",
+     "FOS",
+     "JUNB",
+     "ATF3",
+     "MXD4",
+     "HIF1A",
+     "ARNT",
+     "CLOCK",
+     "BMAL1",
+     "STAT1",
+     "STAT2",
+     "SMAD3",
+     "SMAD4",
+     "RELA",
+     "NFKB1",
+     "TCF3",
+     "TCF12",
+     "HNF1A",
+     "HNF4A",
+     "FOXA2",
+     "SPI1",
+     "CEBPA",
+     "GATA1",
+     "TAL1",
+     "PBX1",
+     "MEIS1",
+     "SOX2",
+     "POU5F1"
+    ]
+   }
+  ],
+  "max_cells": 8000
+ }
+}

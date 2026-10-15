@@ -1,0 +1,16 @@
+{
+  "requested_census_version": "2025-11-08",
+  "resolved_census_version": "2025-11-08",
+  "register_sha256": "082cb01a41119f79e92aae6b18c2d1996c480092b5a8fb3d895d401ff374a3c2",
+  "register_path": "/workspace/TFpairminer/compendium/gene_register.tsv",
+  "tf_set": "exploratory",
+  "n_register_genes": 3874,
+  "n_with_ensembl_id": 3871,
+  "n_without_ensembl_id": 3,
+  "n_mapped_genes": 3868,
+  "n_tf_mapped": 1542,
+  "n_datasets": 1,
+  "dataset_selection": "explicit_ids",
+  "normalization": "log1p(10000 * raw_count / obs.raw_sum); raw_sum > 0",
+  "filters": "Homo sapiens; is_primary_data == True; cell type/tissue/disease/assay stratified"
+}

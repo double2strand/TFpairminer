@@ -1,0 +1,28 @@
+{
+  "n_planned_datasets": 1,
+  "n_completed_datasets": 1,
+  "complete": true,
+  "atlas_wide": false,
+  "dataset_selection": "explicit_ids",
+  "run_config": {
+    "assay_ids": [],
+    "max_q": 0.05,
+    "max_strata": 3,
+    "metacell_size": 20,
+    "min_cells": 20,
+    "min_codetected": 25,
+    "min_detection": 0.05,
+    "min_donor_cells": 10,
+    "min_lift": 1.1,
+    "min_rho": 0.25,
+    "primary_stat": "metacell",
+    "schema_version": 2,
+    "store_min_r": 0.1,
+    "store_p": 0.01,
+    "top_k": 0
+  },
+  "schema_version": 2,
+  "n_candidate_rows": 0,
+  "positive_controls_recovered": 0,
+  "positive_controls_tested": 17
+}

@@ -1,6 +1,6 @@
 .venv/
-run/
-run*/
+/run/
+/run_*/
 *.pyc
 __pycache__/
 tfpm.conf
