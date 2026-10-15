@@ -1,10 +1,10 @@
 {
  "schema_version": 2,
  "run_id": "2025-11-08_exploratory_pilot_25c84764",
- "label": "Pilot v1 cell-level screen (cell_raw) \u00b7 liver cholangiocyte + Tabula Sapiens replication",
+ "label": "Pilot v1 cell-level screen (cell_raw) \u00b7 liver cholangiocyte + Tabula Sapiens replication + CATlas level B (fetal proxy)",
  "pilot": true,
- "exported_at": "2026-10-15T15:38:02+00:00",
- "code_commit_at_export": "4ccafc7",
+ "exported_at": "2026-10-15T17:03:10+00:00",
+ "code_commit_at_export": "52586c4",
  "source_run_dir": "/workspace/pilot_liver_v1",
  "warnings": [],
  "manifest": {
@@ -236,20 +236,150 @@
    "complete": true
   },
   "scatac": {
-   "status": "not_run",
+   "status": "done",
    "title": "scATAC evidence (levels A-D)",
    "column": "atac_level",
-   "levels": [
-    "A",
-    "B",
-    "C",
-    "D"
-   ]
+   "levels": {
+    "A": {
+     "name": "cell-type accessibility of both TF loci",
+     "status": "not_run"
+    },
+    "B": {
+     "name": "same-cCRE motif co-enrichment in accessible distal cCREs (CATlas)",
+     "status": "done"
+    },
+    "C": {
+     "name": "footprinting / co-accessibility",
+     "status": "not_run"
+    },
+    "D": {
+     "name": "ChIP / perturbation support",
+     "status": "not_run"
+    }
+   },
+   "caveat": "Same-cCRE sequence-motif co-enrichment in accessible vs GC/width-matched inaccessible distal CATlas cCREs. This is not co-binding, not a TF-TF interaction test and not target-gene assignment; AP-1 family motifs are near-identical, so positive AP-1 pairs need motif-similarity filtering, footprinting/ChIP or perturbation. Coverage gaps (no matching CATlas cell type) are not negative results.",
+   "exact": {
+    "manifest": {
+     "catlas_source": "CATlas-derived binary-atac-tutorial-data mirror",
+     "catlas_mirror_repo": "Genentech/binary-atac-tutorial-data",
+     "catlas_mirror_revision": "6b6d749d445605f2cdb98e5ca83018b63271b3c4",
+     "genome_build": "GRCh38/hg38",
+     "candidate_summary_sha256": "9f8450385c235d128cc832176010cc91bd70ae1b2056cca9e7aee4be79fe8c2e",
+     "catlas_h5ad_sha256": "bbe4343c308c83efee0c4ec085229c82a6a7077df1bd66cb4096801a4578aa60",
+     "ontology_sha256": "7ef6945a19298bd24c12f42768df64d5d1374029b28755f551f7cd0f14ad1062",
+     "jaspar_meme_sha256": "ae4f77a17256c7b8b7b73402810c1ecf4fc411e9ad7832cdc87d586dee9a4a15",
+     "cluster_map_sha256": "",
+     "n_candidates": 29,
+     "n_plan_rows": 29,
+     "n_clusters": 222,
+     "n_peaks": 1154611,
+     "n_distal_peaks": 1003527,
+     "n_selected_motifs": 12,
+     "n_mapped_rows": 0,
+     "n_unmapped_rows": 29,
+     "included_validation_statuses": [
+      "replicated_donor_supported"
+     ],
+     "motif_interpretation": "JASPAR sequence-model matches; not direct TF occupancy or biochemical pairing"
+    },
+    "summary": {
+     "n_input_candidates": 29,
+     "n_plan_rows": 29,
+     "n_result_rows": 29,
+     "n_tested_rows": 0,
+     "n_gene_tests": 0,
+     "n_joint_tests": 0,
+     "n_analysis_shards": 0,
+     "result_counts": {
+      "no_exact_celltype": 29
+     },
+     "q_threshold": 0.05,
+     "min_joint_peaks": 20,
+     "interpretation": "Motif-sequence co-enrichment in accessible cCREs, not direct TF binding"
+    },
+    "mapping_review": [
+     {
+      "cell_type_id": "CL:0002538",
+      "cell_type": "intrahepatic cholangiocyte",
+      "tissue_id": "UBERON:0002107",
+      "tissue": "liver",
+      "exact_ontology_clusters": "",
+      "name_suggestions": "Fetal Cholangiocyte;Melanocyte;Keratinocyte 2",
+      "fetal_only_clusters": "Fetal Cholangiocyte"
+     }
+    ],
+    "crosswalk": []
+   },
+   "proxy_fetal": {
+    "manifest": {
+     "catlas_source": "CATlas-derived binary-atac-tutorial-data mirror",
+     "catlas_mirror_repo": "Genentech/binary-atac-tutorial-data",
+     "catlas_mirror_revision": "6b6d749d445605f2cdb98e5ca83018b63271b3c4",
+     "genome_build": "GRCh38/hg38",
+     "candidate_summary_sha256": "9f8450385c235d128cc832176010cc91bd70ae1b2056cca9e7aee4be79fe8c2e",
+     "catlas_h5ad_sha256": "bbe4343c308c83efee0c4ec085229c82a6a7077df1bd66cb4096801a4578aa60",
+     "ontology_sha256": "7ef6945a19298bd24c12f42768df64d5d1374029b28755f551f7cd0f14ad1062",
+     "jaspar_meme_sha256": "ae4f77a17256c7b8b7b73402810c1ecf4fc411e9ad7832cdc87d586dee9a4a15",
+     "cluster_map_sha256": "1d07a98d923ebebd8cb29c59009d4a6a804e5b539f601b862f78c05b7efaf04a",
+     "n_candidates": 29,
+     "n_plan_rows": 29,
+     "n_clusters": 222,
+     "n_peaks": 1154611,
+     "n_distal_peaks": 1003527,
+     "n_selected_motifs": 12,
+     "n_mapped_rows": 29,
+     "n_unmapped_rows": 0,
+     "included_validation_statuses": [
+      "replicated_donor_supported"
+     ],
+     "motif_interpretation": "JASPAR sequence-model matches; not direct TF occupancy or biochemical pairing"
+    },
+    "summary": {
+     "n_input_candidates": 29,
+     "n_plan_rows": 29,
+     "n_result_rows": 29,
+     "n_tested_rows": 29,
+     "n_gene_tests": 8,
+     "n_joint_tests": 29,
+     "n_analysis_shards": 16,
+     "result_counts": {
+      "proxy_coenriched": 13,
+      "proxy_not_coenriched": 16
+     },
+     "q_threshold": 0.05,
+     "min_joint_peaks": 20,
+     "interpretation": "Motif-sequence co-enrichment in accessible cCREs, not direct TF binding"
+    },
+    "mapping_review": [
+     {
+      "cell_type_id": "CL:0002538",
+      "cell_type": "intrahepatic cholangiocyte",
+      "tissue_id": "UBERON:0002107",
+      "tissue": "liver",
+      "exact_ontology_clusters": "",
+      "name_suggestions": "Fetal Cholangiocyte;Melanocyte;Keratinocyte 2",
+      "fetal_only_clusters": "Fetal Cholangiocyte"
+     }
+    ],
+    "crosswalk": [
+     {
+      "catlas_cluster": "Fetal Cholangiocyte",
+      "cell_type_id": "CL:0002538",
+      "tissue_id": "UBERON:0002107",
+      "stage": "fetal",
+      "mapping_tier": "proxy_fetal",
+      "reviewed": "Yes"
+     }
+    ],
+    "note": "Exploratory developmental proxy: adult cell types mapped to a FETAL CATlas cluster by an explicit proxy_fetal crosswalk. Never adult validation."
+   }
   }
  },
  "profile_detection_floor": 0.02,
  "top_n": 3000,
  "downloads": {
+  "atac_exact_catlas_pair_results.tsv.gz": "atac_exact_catlas_pair_results.tsv.gz",
+  "atac_proxy_fetal_catlas_pair_results.tsv.gz": "atac_proxy_fetal_catlas_pair_results.tsv.gz",
   "cell_type_pair_candidates.tsv": "cell_type_pair_candidates.tsv",
   "positive_controls.tsv": "positive_controls.tsv",
   "manifest.json": "manifest.json",

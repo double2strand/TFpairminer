@@ -1,6 +1,6 @@
 "use strict";
 /* TF Pair Miner — results explorer. Data: data/runs/index.json + per-run sharded JSON (schema_version 2). */
-const D = {cache: {}}; const S = {sort: {k: "min_q", dir: 1}, f: {r: "", q: "", mq: "", lift: "", coll: "", prior: false, rep: false}};
+const D = {cache: {}}; const S = {sort: {k: "min_q", dir: 1}, f: {r: "", q: "", mq: "", lift: "", coll: "", prior: false, rep: false, atac: ""}};
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const fmt = (v, d = 3) => v == null || v === "" ? "–" : (typeof v === "number" && !Number.isInteger(v) ? (Math.abs(v) < 1e-3 && v !== 0 ? v.toExponential(1) : v.toFixed(d)) : v);
@@ -32,7 +32,7 @@ async function boot() {
 function layerBadges(compact) {
   const L = D.run.layers || {}; const emb = D.run.embedding || {};
   const b = (st, t) => `<span class="badge ${st === "done" ? "b-done" : "b-todo"}">${esc(t)}: ${st === "done" ? "done" : "not yet run"}</span>`;
-  return `<div class="layers">${b((L.discovery_cellxgene || {}).status || "done", "CELLxGENE discovery")}${b(emb.status || "not_run", "Per-cell UMAP")}${b((L.replication || {}).status || "not_run", "Replication (SCEA / Tabula Sapiens)")}${b((L.scatac || {}).status || "not_run", "scATAC evidence A–D")}</div>`;
+  return `<div class="layers">${b((L.discovery_cellxgene || {}).status || "done", "CELLxGENE discovery")}${b(emb.status || "not_run", "Per-cell UMAP")}${b((L.replication || {}).status || "not_run", "Replication (SCEA / Tabula Sapiens)")}${b((L.scatac || {}).status || "not_run", (L.scatac || {}).status === "done" ? "scATAC level B (A, C, D not run)" : "scATAC evidence A–D")}</div>`;
 }
 const REP = {replicated_donor_supported: ["replicated", "b-rep"], cell_level_support_only: ["cell-level only", "b-cell"], not_replicated: ["not replicated", "b-no"],
   inconclusive_low_expression: ["inconclusive", "b-inc"], insufficient_cells: ["insufficient cells", "b-inc"], gene_unavailable: ["gene unavailable", "b-inc"],
@@ -42,7 +42,14 @@ const repLayerDone = () => ((D.run.layers || {}).replication || {}).status === "
 const repCell = p => p.replication == null ? (repLayerDone() ? `<span class="badge b-todo">not tested</span>` : `<span class="badge b-todo">not yet run</span>`)
   : repBadge(p.replication.status, `${p.replication.assay || ""} ${p.replication.reason || ""}`);
 const isRep = p => p.replication && p.replication.status === "replicated_donor_supported";
-const atacCell = p => p.atac_level == null ? `<span class="badge b-todo">not yet run</span>` : `<span class="badge b-done">${esc(p.atac_level)}</span>`;
+const ATACC = {catlas_coenriched: "b-rep", not_coenriched: "b-no", provisional_coenriched: "b-cell", provisional_not_coenriched: "b-no",
+  proxy_coenriched: "b-proxy", proxy_not_coenriched: "b-proxyno", no_matching_context: "b-todo", no_exact_celltype: "b-todo", not_tested: "b-todo"};
+const atacDone = () => ((D.run.layers || {}).scatac || {}).status === "done";
+const atacBadge = (st, label, tip) => `<span class="badge ${ATACC[st] || "b-inc"}" title="${esc(tip || st)}">${esc(label || st)}</span>`;
+const atacCell = p => { const a = p.atac_level;
+  if (a == null) return `<span class="badge b-todo">${atacDone() ? "not tested" : "not yet run"}</span>`;
+  return `<span class="muted" style="font-size:10px">B</span> ${atacBadge(a.status, a.label, "Level B: same-cCRE motif co-enrichment (not co-binding)")}${a.proxy_status ? " " + atacBadge(a.proxy_status, "fetal proxy: " + (a.proxy_label || "").replace(" in fetal proxy", ""), "Exploratory FETAL-proxy result, not adult validation") : ""}`; };
+const atacKey = p => !p.atac_level ? "none" : p.atac_level.status;
 
 /* ---------- search with autocomplete ---------- */
 function setupSearch() {
@@ -206,7 +213,8 @@ async function pairPage(arg) {
    <tr><td>CELLxGENE discovery</td><td><span class="badge b-done">done</span></td><td>${best ? `${P.length} context(s); best ${esc(best.primary_stat)} r = ${fmt(best.primary_r)}, q = ${fmt(best.min_q)}; meta k = ${best.k_meta ?? 0}` : "no passing context"}</td></tr>
    <tr><td>Literature / physical prior</td><td><span class="badge ${best && best.prior ? "b-done" : "b-todo"}">${best && best.prior ? "recorded" : "none recorded"}</span></td><td>${best && best.prior ? `${esc(best.prior_evidence)}; ${esc(best.prior_classes)}; Pair_ID ${esc(best.pair_id || "–")}; PMIDs ${(best.pmids || "").split(" | ").filter(Boolean).slice(0, 8).map(x => `<a href="https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(x)}/" target="_blank" rel="noopener">${esc(x)}</a>`).join(" ")}` : "Not recorded in the compendium. That doesn't mean the pair doesn't interact."}</td></tr>
    ${repRow(P)}
-   <tr><td>scATAC evidence (A–D)</td><td><span class="badge b-todo">not yet run</span></td><td class="muted">Levels A–D: motif co-accessibility, with motif ambiguity handled</td></tr></table></div>
+   ${atacRow(P)}</table></div>
+   ${atacPanel(P)}
    ${repTable(P)}
    <div class="card"><h2>All evidence rows</h2>${P.length ? pairTable(P) : '<p class="muted">none</p>'}</div>
    <div class="card"><h2>Detection by cell context</h2><div id="det" class="plot"></div></div>
@@ -250,19 +258,47 @@ function repTable(P) {
    ${R.flatMap(p => (p.replication.assays.length ? p.replication.assays : [p.replication]).map(a => `<tr><td>${esc(p.ct)} · ${esc(p.assay)}</td><td>${esc(a.assay || "–")}</td><td>${repBadge(a.status)}</td><td class="n">${a.n_cells ?? "–"}</td><td class="n">${a.n_donors ?? "–"}</td><td class="n">${fmt(a.r)}</td><td class="n">${fmt(a.lift)}</td><td class="n">${a.codetected ?? "–"}</td><td class="n">${fmt(a.tf1_det)}</td><td class="n">${fmt(a.tf2_det)}</td><td class="n">${fmt(a.donor_mean_r)}</td><td class="n">${a.donors_tested ?? "–"}</td><td class="n">${fmt(a.pos_donor_frac)}</td><td class="muted">${esc(a.reason || "")}</td></tr>`)).join("")}</table></div>`;
 }
 
+function atacOk(p, v) { const a = p.atac_level; if (!v) return true; if (!a) return false;
+  if (v === "tested") return ["catlas_coenriched", "not_coenriched"].includes(a.status);
+  if (v === "gap") return ["no_matching_context", "no_exact_celltype", "ontology_present_cluster_unresolved"].includes(a.status);
+  if (v === "proxy") return !!a.proxy_status; if (v.startsWith("proxy_")) return a.proxy_status === v; return a.status === v; }
+function atacRow(P) {
+  const L = (D.run.layers || {}).scatac || {};
+  if (L.status !== "done") return `<tr><td>scATAC evidence (A–D)</td><td><span class="badge b-todo">not yet run</span></td><td class="muted">Levels A–D: motif co-accessibility, with motif ambiguity handled</td></tr>`;
+  const R = P.filter(p => p.atac_level && p.atac_level.status !== "not_tested"), a = R[0] && R[0].atac_level;
+  return `<tr><td>scATAC level B (CATlas)</td><td>${a ? atacCell(R[0]) : '<span class="badge b-todo">not tested</span>'}</td><td>${a ? `${esc(a.label)}${a.fetal_clusters ? ` – CATlas has only <i>${esc(a.fetal_clusters)}</i>` : ""}${a.proxy_label ? `; exploratory fetal proxy: ${esc(a.proxy_label)}` : ""}. Levels A, C, D not run.` : "Only Tabula Sapiens–replicated rows are sent to CATlas"}</td></tr>`;
+}
+function atacPanel(P) {
+  const L = (D.run.layers || {}).scatac || {}; if (L.status !== "done") return "";
+  const R = P.filter(p => p.atac_level && p.atac_level.status !== "not_tested");
+  const st = x => x == null ? "–" : fmt(x);
+  const rowsOf2 = (p, list, kind) => list.map(m => `<tr><td>${esc(p.ct)} · ${esc(p.assay)}</td><td>${kind === "proxy" ? '<span class="badge b-proxy">fetal proxy</span>' : "adult/exact"}</td><td>${esc(m.cluster || "—")}</td><td>${esc(m.stage || "–")}</td><td>${esc(m.tier || "–")}${m.reviewed === "Yes" ? " (reviewed)" : ""}</td><td>${atacBadge(m.result, m.label)}</td><td class="n">${m.n_matched_foreground ?? "–"} / ${m.n_matched_background ?? "–"}</td><td class="n">${m.tf1_fg_hits ?? "–"}/${m.tf1_bg_hits ?? "–"} · OR ${st(m.tf1_odds_ratio)} · q ${st(m.tf1_q)}</td><td class="n">${m.tf2_fg_hits ?? "–"}/${m.tf2_bg_hits ?? "–"} · OR ${st(m.tf2_odds_ratio)} · q ${st(m.tf2_q)}</td><td class="n">${m.joint_fg_hits ?? "–"}/${m.joint_bg_hits ?? "–"} · OR ${st(m.joint_odds_ratio)} · q ${st(m.joint_q)}</td><td class="n">${st(m.joint_lift_fg)} vs ${st(m.joint_lift_bg)}</td><td class="muted">${esc(m.tf1_motifs)} | ${esc(m.tf2_motifs)}</td></tr>`).join("");
+  const body = R.flatMap(p => [rowsOf2(p, p.atac_level.exact || [], "exact"), rowsOf2(p, p.atac_level.proxy_fetal || [], "proxy")]).join("");
+  const rv = ((L.exact || L.proxy_fetal || {}).mapping_review || []);
+  const cw = ((L.proxy_fetal || {}).crosswalk || []);
+  return `<div class="card"><h2>scATAC evidence – level B: CATlas same-cCRE motif co-enrichment</h2>
+   <p class="caveat"><b>Caveat.</b> ${esc(L.caveat || "")}</p>
+   ${L.proxy_fetal ? `<p class="caveat proxy"><b>Fetal proxy.</b> ${esc(L.proxy_fetal.note)}</p>` : ""}
+   <h3>Cell-type mapping (RNA → CATlas)</h3><table><tr><th>RNA cell type</th><th>Tissue</th><th>Exact CATlas cluster (ontology)</th><th>Nearest names</th><th>Fetal-only counterpart</th><th>Proxy crosswalk</th></tr>
+   ${rv.map(r => `<tr><td>${esc(r.cell_type)} <span class="muted">${esc(r.cell_type_id)}</span></td><td>${esc(r.tissue)}</td><td>${esc(r.exact_ontology_clusters || "none")}</td><td class="muted">${esc(r.name_suggestions)}</td><td>${esc(r.fetal_only_clusters || "–")}</td><td>${cw.filter(c => c.cell_type_id === r.cell_type_id).map(c => `${esc(c.catlas_cluster)} (${esc(c.mapping_tier)})`).join(", ") || "–"}</td></tr>`).join("")}</table>
+   <h3>Enrichment (accessible vs GC/width-matched inaccessible distal cCREs; one-sided Fisher, BH q)</h3>
+   ${R.length ? `<table><tr><th>Discovery context</th><th>Run</th><th>CATlas cluster</th><th>Stage</th><th>Mapping tier</th><th>Result</th><th>Matched fg / bg cCREs</th><th>TF A hits fg/bg</th><th>TF B hits fg/bg</th><th>Joint (same cCRE) fg/bg</th><th>Joint lift fg vs bg</th><th>JASPAR motifs</th></tr>${body}</table>` : '<p class="muted">No replicated row for this pair was sent to CATlas.</p>'}
+   <p class="muted">CATlas mirror ${esc(((L.exact || L.proxy_fetal || {}).manifest || {}).catlas_mirror_repo || "")}@${esc((((L.exact || L.proxy_fetal || {}).manifest || {}).catlas_mirror_revision || "").slice(0, 10))}; JASPAR 2026 CORE vertebrates; hg38. Thresholds: q ≤ ${(((L.exact || {}).summary) || {}).q_threshold ?? 0.05}, joint accessible cCREs ≥ ${(((L.exact || {}).summary) || {}).min_joint_peaks ?? 20}. Levels A, C and D are not run.</p></div>`;
+}
+
 function bindSort(P, fn, arg) { document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => { const k = th.dataset.k; S.sort = {k, dir: S.sort.k === k ? -S.sort.dir : (k === "min_q" || k === "meta_q" ? 1 : -1)}; route(); }); }
 
 async function table() {
   const f = S.f;
   const P = sortBy(D.TOP.filter(p => (f.r === "" || (p.primary_r ?? p.r) >= +f.r) && (f.q === "" || (p.min_q != null && p.min_q <= +f.q)) && (f.mq === "" || (p.meta_q != null && p.meta_q <= +f.mq))
-    && (f.lift === "" || p.lift >= +f.lift) && (f.coll === "" || p.n_collections >= +f.coll) && (!f.prior || p.prior) && (!f.rep || isRep(p))), S.sort.k, S.sort.dir);
+    && (f.lift === "" || p.lift >= +f.lift) && (f.coll === "" || p.n_collections >= +f.coll) && (!f.prior || p.prior) && (!f.rep || isRep(p)) && atacOk(p, f.atac)), S.sort.k, S.sort.dir);
   const rc = D.run.summary.run_config, m = D.run.manifest;
   $("#app").innerHTML = `<div class="card"><h2>Scientific table</h2><p class="muted">Top ${D.TOP.length} of ${D.top.total} rows. <a href="${base()}${esc(D.run.downloads["cell_type_pair_candidates.tsv"])}" download>Download the full TSV</a>.</p><div class="filters">
    <label>Min primary r<input id="fr" type="number" step="0.05" value="${f.r}"></label><label>Max q<input id="fq" type="number" step="0.01" value="${f.q}"></label><label>Max meta q<input id="fmq" type="number" step="0.01" value="${f.mq}"></label>
-   <label>Min lift<input id="fl" type="number" step="0.1" value="${f.lift}"></label><label>Min collections<input id="fc" type="number" min="1" value="${f.coll}"></label><label><span>Prior only</span><input id="fp" type="checkbox" ${f.prior ? "checked" : ""} style="width:auto"></label><label><span>Replicated only</span><input id="frep" type="checkbox" ${f.rep ? "checked" : ""} ${repLayerDone() ? "" : "disabled"} style="width:auto"></label><span class="muted">${P.length} rows</span></div>
+   <label>Min lift<input id="fl" type="number" step="0.1" value="${f.lift}"></label><label>Min collections<input id="fc" type="number" min="1" value="${f.coll}"></label><label><span>Prior only</span><input id="fp" type="checkbox" ${f.prior ? "checked" : ""} style="width:auto"></label><label><span>Replicated only</span><input id="frep" type="checkbox" ${f.rep ? "checked" : ""} ${repLayerDone() ? "" : "disabled"} style="width:auto"></label><label>ATAC (level B)<select id="fatac" ${atacDone() ? "" : "disabled"}>${[["", "any"], ["tested", "tested (adult)"], ["catlas_coenriched", "co-enriched (adult)"], ["gap", "no CATlas match"], ["proxy", "fetal proxy tested"], ["proxy_coenriched", "fetal proxy co-enriched"], ["proxy_not_coenriched", "fetal proxy not co-enriched"]].map(([v, l]) => `<option value="${v}" ${f.atac === v ? "selected" : ""}>${l}</option>`).join("")}</select></label><span class="muted">${P.length} rows</span></div>
    <p class="muted">Primary statistic <b>${esc(rc.primary_stat || "cell_raw")}</b>; detection ≥ ${rc.min_detection}; r ≥ ${rc.min_rho}; ${rc.primary_stat && rc.primary_stat !== "cell_raw" ? `BH q ≤ ${rc.max_q}; ` : ""}lift ≥ ${rc.min_lift}; co-detected ≥ ${rc.min_codetected}; min cells ${rc.min_cells}. Census ${esc(m.resolved_census_version)}.</p>${pairTable(P)}</div>`;
-  const upd = () => { S.f = {r: $("#fr").value, q: $("#fq").value, mq: $("#fmq").value, lift: $("#fl").value, coll: $("#fc").value, prior: $("#fp").checked, rep: $("#frep").checked}; table(); };
-  ["#fr", "#fq", "#fmq", "#fl", "#fc", "#fp", "#frep"].forEach(s => $(s).addEventListener("change", upd)); bindSort();
+  const upd = () => { S.f = {r: $("#fr").value, q: $("#fq").value, mq: $("#fmq").value, lift: $("#fl").value, coll: $("#fc").value, prior: $("#fp").checked, rep: $("#frep").checked, atac: $("#fatac").value}; table(); };
+  ["#fr", "#fq", "#fmq", "#fl", "#fc", "#fp", "#frep", "#fatac"].forEach(s => $(s).addEventListener("change", upd)); bindSort();
 }
 
 function info() {
@@ -277,7 +313,7 @@ function info() {
    ${row("All runs", D.index.runs.map(x => `<a href="?run=${encodeURIComponent(x.run_id)}#home">${esc(x.label || x.run_id)}</a>${x.run_id === D.index.latest ? " (default)" : ""}`).join("<br>"))}</table></div>`;
 }
 function about() {
-  $("#app").innerHTML = `<div class="card"><h2>About</h2><p>This tool screens human single-cell RNA data in the CELLxGENE Census for transcription-factor pairs that are co-expressed within the same cell type × tissue × disease × assay context. For each pair it reports correlation (raw cell-level, or donor- and library-adjusted metacell/pseudobulk), co-detection lift, Benjamini–Hochberg q within each context, a cross-dataset meta-analysis, and literature priors from the TF compendium. The results are candidates for wet-lab testing, not proof that the TFs cooperate. Replication in Tabula Sapiens (independent donors, same cell type × tissue × disease; discovery datasets excluded) is shown as badges and a per-assay table when a run has it; SCEA replication and scATAC evidence A–D are later layers.</p></div>
+  $("#app").innerHTML = `<div class="card"><h2>About</h2><p>This tool screens human single-cell RNA data in the CELLxGENE Census for transcription-factor pairs that are co-expressed within the same cell type × tissue × disease × assay context. For each pair it reports correlation (raw cell-level, or donor- and library-adjusted metacell/pseudobulk), co-detection lift, Benjamini–Hochberg q within each context, a cross-dataset meta-analysis, and literature priors from the TF compendium. The results are candidates for wet-lab testing, not proof that the TFs cooperate. Replication in Tabula Sapiens (independent donors, same cell type × tissue × disease; discovery datasets excluded) is shown as badges and a per-assay table when a run has it; scATAC level B (CATlas same-cCRE motif co-enrichment for replicated pairs; fetal-proxy results are labelled separately and are never adult validation) is shown as a badge and a pair-page panel; SCEA replication and scATAC levels A, C, D are later layers.</p></div>
    <div class="card"><h2>Run it</h2><pre>git clone https://github.com/double2strand/TFpairminer.git && cd TFpairminer
 ./tfpm setup                    # venv, deps, tests, Census plan
 ./tfpm mine --runner wr         # cluster (wr manager must be running); or --runner local --parallel 6

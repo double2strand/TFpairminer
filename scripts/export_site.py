@@ -158,6 +158,49 @@ def main():
             rep_assays[r["candidate_id"]].append(slim(r))
         for r in rows(rep_dir / "aggregate" / "candidate_summary.tsv.gz"):
             rep_best[r["candidate_id"]] = {**slim(r), "n_assays_tested": num(r["n_assays_tested"]), "n_assays_reported": num(r["n_assays_reported"])}
+    # ---- scATAC layer (CATlas same-cCRE motif co-enrichment, mining/catlas_pipeline.py) ~ level B
+    ATAC_LABEL = {"catlas_coenriched": "co-enriched", "not_coenriched": "not co-enriched",
+                  "provisional_coenriched": "co-enriched (provisional mapping)", "provisional_not_coenriched": "not co-enriched (provisional mapping)",
+                  "proxy_coenriched": "co-enriched in fetal proxy", "proxy_not_coenriched": "not co-enriched in fetal proxy",
+                  "no_exact_celltype": "no matching CATlas cell type", "ontology_present_cluster_unresolved": "CATlas cluster unresolved",
+                  "motif_unavailable": "no JASPAR motif", "shared_motif_ambiguous": "shared/ambiguous motif",
+                  "inconclusive_sparse_motif": "inconclusive (sparse motif)", "insufficient_matched_cCREs": "too few matched cCREs"}
+    def atac_load(d):
+        if not (d / "aggregate" / "catlas_pair_results.tsv.gz").exists():
+            return None
+        res = defaultdict(list)
+        for r in rows(d / "aggregate" / "catlas_pair_results.tsv.gz"):
+            res[r["candidate_id"]].append({"result": r["catlas_result"], "label": ATAC_LABEL.get(r["catlas_result"], r["catlas_result"]),
+                "cluster": r["catlas_cluster"], "stage": r["catlas_stage"], "tier": r["mapping_tier"], "reviewed": r["mapping_reviewed"],
+                "mapping_status": r["mapping_status"], "motif_status": r["motif_status"], "tf1_motifs": r["tf1_motifs"], "tf2_motifs": r["tf2_motifs"],
+                **{k: num(r[k]) for k in ["n_accessible_distal", "n_matched_foreground", "n_matched_background", "tf1_fg_hits", "tf1_bg_hits",
+                   "tf2_fg_hits", "tf2_bg_hits", "joint_fg_hits", "joint_bg_hits", "tf1_odds_ratio", "tf2_odds_ratio", "joint_odds_ratio",
+                   "tf1_q", "tf2_q", "joint_q", "joint_lift_fg", "joint_lift_bg"]}})
+        man = json.loads((d / "manifest.json").read_text()); summ = json.loads((d / "aggregate" / "summary.json").read_text())
+        clusters = list(rows(d / "clusters.tsv")); review = list(rows(d / "mapping_review.tsv"))
+        cw = list(rows(d.parent / (d.name + ".inputs") / "crosswalk.tsv")) if (d.parent / (d.name + ".inputs") / "crosswalk.tsv").exists() else []
+        fetal = {c["catlas_cluster"] for c in clusters if c["stage"] == "fetal"}
+        for rv in review:   # honest label for the coverage gap: a fetal-only counterpart exists
+            fo = [n for n in rv["name_suggestions"].split(";") if n in fetal and rv["cell_type"].split()[-1].lower() in n.lower()]
+            rv["fetal_only_clusters"] = ";".join(fo)
+        return {"res": res, "manifest": man, "summary": summ, "review": review, "crosswalk": cw, "dir": d}
+    atac_exact = atac_load(run / "atac_catlas"); atac_proxy = atac_load(run / "atac_catlas_proxy_fetal")
+    fetal_only = {rv["cell_type_id"]: rv["fetal_only_clusters"] for rv in (atac_exact or {"review": []})["review"] if rv["fetal_only_clusters"]}
+    def atac_obj(cid, ct_id, rep_ok):
+        if not (atac_exact or atac_proxy):
+            return None
+        if cid is None or not rep_ok:
+            return {"level": "B", "status": "not_tested", "label": "not tested (not replicated)", "tier": None}
+        ex = (atac_exact or {"res": {}})["res"].get(cid, []); px = (atac_proxy or {"res": {}})["res"].get(cid, [])
+        o = {"level": "B", "status": "not_tested", "label": "not tested", "tier": None, "exact": ex, "proxy_fetal": px}
+        if ex:
+            st = ex[0]["result"]
+            o.update(status=st, label=ATAC_LABEL.get(st, st), tier="exact" if st in ("catlas_coenriched", "not_coenriched") else ex[0]["tier"] or None)
+            if st == "no_exact_celltype" and ct_id in fetal_only:
+                o.update(status="no_matching_context", label="no adult CATlas match (fetal only)", fetal_clusters=fetal_only[ct_id])
+        if px:
+            o["proxy_label"] = ATAC_LABEL.get(px[0]["result"], px[0]["result"]); o["proxy_status"] = px[0]["result"]
+        return o
     P = []
     for r in rows(agg / "cell_type_pair_candidates.tsv"):
         s = stratum(r)
@@ -174,6 +217,7 @@ def main():
             cid = tsv.candidate_id(r)
             if cid in rep_best:
                 row["replication"] = {**rep_best[cid], "candidate_id": cid, "assays": rep_assays.get(cid, [])}
+            row["atac_level"] = atac_obj(cid, r["cell_type_id"], row["replication"] is not None and row["replication"]["status"] == "replicated_donor_supported")
         P.append([row[c] for c in PCOLS])
     # stable rank: collections desc, primary r desc
     ci, pi, ri = PCOLS.index("n_collections"), PCOLS.index("primary_r"), PCOLS.index("r")
@@ -208,9 +252,32 @@ def main():
     dump(out / "heatmap.json", {"tfs": htf, "strata": hs, "detection": [[hv.get((t, s)) for s in hs] for t in htf]})
 
     downloads = {}
+    def atac_layer():
+        L = {"status": "not_run", "title": "scATAC evidence (levels A-D)", "column": "atac_level",
+             "levels": {"A": {"name": "cell-type accessibility of both TF loci", "status": "not_run"},
+                        "B": {"name": "same-cCRE motif co-enrichment in accessible distal cCREs (CATlas)", "status": "not_run"},
+                        "C": {"name": "footprinting / co-accessibility", "status": "not_run"},
+                        "D": {"name": "ChIP / perturbation support", "status": "not_run"}}}
+        if not (atac_exact or atac_proxy):
+            return L
+        L["status"] = "done"; L["levels"]["B"]["status"] = "done"
+        L["caveat"] = ("Same-cCRE sequence-motif co-enrichment in accessible vs GC/width-matched inaccessible distal CATlas cCREs. "
+                       "This is not co-binding, not a TF-TF interaction test and not target-gene assignment; AP-1 family motifs are "
+                       "near-identical, so positive AP-1 pairs need motif-similarity filtering, footprinting/ChIP or perturbation. "
+                       "Coverage gaps (no matching CATlas cell type) are not negative results.")
+        for k, A in (("exact", atac_exact), ("proxy_fetal", atac_proxy)):
+            if A:
+                L[k] = {"manifest": A["manifest"], "summary": A["summary"], "mapping_review": A["review"], "crosswalk": A["crosswalk"]}
+        if atac_proxy:
+            L["proxy_fetal"]["note"] = ("Exploratory developmental proxy: adult cell types mapped to a FETAL CATlas cluster by an explicit "
+                                        "proxy_fetal crosswalk. Never adult validation.")
+        return L
     srcs = [agg / "cell_type_pair_candidates.tsv", agg / "positive_controls.tsv", run / "manifest.json", agg / "summary.json"]
     if rep_info:
         srcs += [rep_dir / "aggregate" / "replication_results.tsv.gz", rep_dir / "aggregate" / "candidate_summary.tsv.gz"]
+    atac_srcs = [(A["dir"] / "aggregate" / "catlas_pair_results.tsv.gz", f"atac_{tag}_catlas_pair_results.tsv.gz") for tag, A in (("exact", atac_exact), ("proxy_fetal", atac_proxy)) if A]
+    for src, name in atac_srcs:
+        shutil.copyfile(src, out / name); downloads[name] = name
     for src in srcs:
         if not src.exists():
             continue
@@ -240,7 +307,7 @@ def main():
                                            "thresholds": rep_info["manifest"]["thresholds"], "summary": rep_info["summary"],
                                            "independence_note": rep_info["manifest"].get("independence_note", ""),
                                            "complete": rep_info["summary"].get("complete")} if rep_info else {})},
-                       "scatac": {"status": "not_run", "title": "scATAC evidence (levels A-D)", "column": "atac_level", "levels": ["A", "B", "C", "D"]}},
+                       "scatac": atac_layer()},
             "profile_detection_floor": a.min_profile_detection, "top_n": a.top_n, "downloads": downloads}
     if keep_embed is not None:
         shutil.move(str(keep_embed), out / "embed")

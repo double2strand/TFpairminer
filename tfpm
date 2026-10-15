@@ -25,6 +25,9 @@ Usage:
   tfpm publish ... --embed              publish including the embedding layer
   tfpm replicate --runner wr|local [--run DIR] [-- plan flags e.g. --min-codetected 25 --assay-id EFO:0009922]
                                         Tabula Sapiens replication of the run's candidates (publish picks it up)
+  tfpm atac --runner wr|local [--run DIR] [--proxy-fetal "Fetal Cholangiocyte=CL:0002538@UBERON:0002107"]
+                                        CATlas same-cCRE motif co-enrichment for replicated pairs (needs TFPM_GENOME_FASTA,
+                                        fimo, bedtools when any cluster maps; proxy runs are labelled proxy_fetal)
   tfpm aggregate                        (run automatically by mine; re-aggregates safely)
 Output dir: $OUT   Census: $CENSUS   Shards: $SHARDS
 U
@@ -81,7 +84,7 @@ cmd_mine(){
       echo "Queued $SHARDS shard jobs + 1 dependent aggregate job. Check with: tfpm status";;
     local)
       echo "local $par $(date -Is)" > "$OUT/logs/local.started"
-      nohup bash -c "seq 0 $((SHARDS-1)) | xargs -P $par -I{} bash -c '$(shard_cmd {}) $extra > $OUT/logs/shard_{}.log 2>&1 && echo {} >> $OUT/logs/shards.done || echo {} >> $OUT/logs/shards.failed'; '$ROOT/tfpm' aggregate > $OUT/logs/aggregate.log 2>&1 && touch $OUT/logs/local.finished" \
+      setsid nohup bash -c "seq 0 $((SHARDS-1)) | xargs -P $par -I{} bash -c '$(shard_cmd {}) $extra > $OUT/logs/shard_{}.log 2>&1 && echo {} >> $OUT/logs/shards.done || echo {} >> $OUT/logs/shards.failed'; '$ROOT/tfpm' aggregate > $OUT/logs/aggregate.log 2>&1 && touch $OUT/logs/local.finished" \
         > "$OUT/logs/local.log" 2>&1 &
       echo "Started $SHARDS shards locally, $par in parallel (pid $!). Safe to log out. Check with: tfpm status";;
     *) die "use --runner wr or --runner local";;
@@ -109,6 +112,10 @@ cmd_status(){
     command -v wr >/dev/null && wr manager status >/dev/null 2>&1 && { wr status -i tfpm-rep -o s 2>/dev/null; wr status -i tfpm-rep-aggregate -o s 2>/dev/null; } || true
     [ -f "$rep/aggregate/summary.json" ] && cat "$rep/aggregate/summary.json"
   fi
+  for d in "$OUT"/atac_catlas "$OUT"/atac_catlas_proxy_fetal; do [ -f "$d/manifest.json" ] || continue
+    echo "ATAC $(basename "$d"): scan $(ls "$d"/scan/*.done.json 2>/dev/null | wc -l)/$(wc -l < "$d/scan_jobs.txt" 2>/dev/null || echo 0), analyze $(ls "$d"/analysis/*.done.json 2>/dev/null | wc -l)/$(wc -l < "$d/analyze_jobs.txt" 2>/dev/null || echo 0)"
+    command -v wr >/dev/null && wr manager status >/dev/null 2>&1 && for g in scan compile analyze aggregate; do wr status -i tfpm-atac-$g -o s 2>/dev/null; done || true
+    [ -f "$d/aggregate/summary.json" ] && cat "$d/aggregate/summary.json"; done
   return 0
 }
 
@@ -155,7 +162,7 @@ cmd_replicate(){
         wr add -f "$rep/jobs.txt" -i tfpm-rep -e tfpm_rep_shards -m "${TFPM_WR_MEM:-32G}" -t "${TFPM_WR_TIME:-24h}" --cpus "${TFPM_WR_CPUS:-4}" -r 3 "${q[@]}"
         echo "$ROOT/tfpm replicate-aggregate --run $run" | wr add -i tfpm-rep-aggregate -d tfpm_rep_shards -m 8G -t 2h -r 1 "${q[@]}"
         echo "Queued $shards replication shard(s) + aggregate. Check: tfpm status --run $run";;
-    local) nohup bash -c "xargs -P $par -I{} bash -c '{}' < '$rep/jobs.txt' > '$rep/logs/local.log' 2>&1; '$ROOT/tfpm' replicate-aggregate --run '$run' >> '$rep/logs/local.log' 2>&1 && touch '$rep/logs/local.finished'" >/dev/null 2>&1 &
+    local) setsid nohup bash -c "xargs -P $par -I{} bash -c '{}' < '$rep/jobs.txt' > '$rep/logs/local.log' 2>&1; '$ROOT/tfpm' replicate-aggregate --run '$run' >> '$rep/logs/local.log' 2>&1 && touch '$rep/logs/local.finished'" >/dev/null 2>&1 &
         echo "Started $shards replication shard(s) locally ($par parallel). Check: tfpm status --run $run";;
     *) die "use --runner wr or --runner local";;
   esac
@@ -168,7 +175,59 @@ cmd_rep_aggregate(){
   (cd "$ROOT/mining" && "$PY" "$REPV" aggregate --out "$rep")
 }
 
+# ---- scATAC layer: CATlas same-cCRE motif co-enrichment (mining/catlas_pipeline.py) ----
+CATP="$ROOT/mining/catlas_pipeline.py"
+cmd_atac(){
+  local run="$OUT" runner="" par=4 nscan="${TFPM_ATAC_SCAN_SHARDS:-32}" nana="${TFPM_ATAC_ANALYZE_SHARDS:-16}" proxy=() plan_args=()
+  while [ $# -gt 0 ]; do case "$1" in
+    --run) run="$(readlink -m "$2")"; shift 2;; --runner) runner="$2"; shift 2;; --parallel|-P) par="$2"; shift 2;;
+    --scan-shards) nscan="$2"; shift 2;; --analyze-shards) nana="$2"; shift 2;;
+    --proxy-fetal) proxy+=("$2"); shift 2;;   # "CATlas fetal cluster=CL:xxxx[@UBERON:yyyy]", repeatable; labelled proxy_fetal, never exact
+    --) shift; plan_args=("$@"); break;; *) die "unknown option $1";; esac; done
+  [ "$runner" = wr ] || [ "$runner" = local ] || die "use --runner wr or --runner local"
+  local rep="${TFPM_REP_OUT:-$run/replication_ts}" inputs="${TFPM_CATLAS_INPUTS:-$(dirname "$run")/catlas_inputs}"
+  local fasta="${TFPM_GENOME_FASTA:-}" fimo="${TFPM_FIMO:-fimo}" bedtools="${TFPM_BEDTOOLS:-bedtools}"
+  local cs="$rep/aggregate/candidate_summary.tsv.gz"; [ -f "$cs" ] || die "no replication summary at $cs (run tfpm replicate first)"
+  local out="$run/atac_catlas"; [ ${#proxy[@]} -gt 0 ] && out="$run/atac_catlas_proxy_fetal"
+  [ -f "$inputs/catlas_binary_atac.h5ad" ] || "$PY" "$CATP" fetch --out "$inputs"
+  local h5="$inputs/catlas_binary_atac.h5ad"
+  if [ ! -f "$out/manifest.json" ]; then
+    local cm=()
+    if [ ${#proxy[@]} -gt 0 ]; then
+      mkdir -p "$out.inputs"; printf 'catlas_cluster\tcell_type_id\ttissue_id\tstage\tmapping_tier\treviewed\n' > "$out.inputs/crosswalk.tsv"
+      for x in "${proxy[@]}"; do local cl="${x%%=*}" rest="${x#*=}"; local ct="${rest%%@*}" ti=""; [ "$rest" != "$ct" ] && ti="${rest#*@}"
+        printf '%s\t%s\t%s\tfetal\tproxy_fetal\tYes\n' "$cl" "$ct" "$ti" >> "$out.inputs/crosswalk.tsv"; done
+      cm=(--cluster-map "$out.inputs/crosswalk.tsv")
+    fi
+    "$PY" "$CATP" plan --candidate-summary "$cs" --catlas-h5ad "$h5" --ontology "$inputs/catlas_cell_ontology.tsv" \
+        --meme "$inputs/jaspar2026_core_vertebrates.meme" --out "$out" "${cm[@]}" "${plan_args[@]}" >/dev/null || die "plan failed"
+  fi
+  local mapped; mapped=$("$PY" -c "import json;print(json.load(open('$out/manifest.json'))['n_mapped_rows'])")
+  mkdir -p "$out/logs"
+  if [ "$mapped" = 0 ]; then
+    echo "No CATlas cluster matches these cell types (see $out/mapping_review.tsv); recording the coverage gap."
+    "$PY" "$CATP" aggregate --out "$out"; return
+  fi
+  [ -n "$fasta" ] && [ -f "$fasta" ] || die "$mapped mapped rows need motif scanning: set TFPM_GENOME_FASTA to an uncompressed chr-prefixed hg38 FASTA"
+  : > "$out/scan_jobs.txt"; : > "$out/analyze_jobs.txt"
+  for ((i=0;i<nscan;i++)); do echo "$PY $CATP scan --out $out --catlas-h5ad $h5 --genome-fasta $fasta --fimo $fimo --bedtools $bedtools --num-shards $nscan --shard-index $i --tmpdir \"\${TMPDIR:-/tmp}\"" >> "$out/scan_jobs.txt"; done
+  for ((i=0;i<nana;i++)); do echo "$PY $CATP analyze --out $out --catlas-h5ad $h5 --num-shards $nana --shard-index $i" >> "$out/analyze_jobs.txt"; done
+  local compile="[ -f $out/compiled/hits.npy ] || $PY $CATP compile --out $out" agg="[ -f $out/aggregate/summary.json ] || $PY $CATP aggregate --out $out"
+  if [ "$runner" = wr ]; then
+    command -v wr >/dev/null || die "wr not on PATH"; wr manager status >/dev/null 2>&1 || die "start a wr manager first: wr manager start"
+    local q=(); [ -n "${TFPM_WR_QUEUE:-}" ] && q=(--queue "$TFPM_WR_QUEUE")
+    wr add -f "$out/scan_jobs.txt" -i tfpm-atac-scan -e tfpm_atac_scan -m 12G -t 24h --cpus 2 -r 3 "${q[@]}"
+    echo "$compile" | wr add -i tfpm-atac-compile -e tfpm_atac_compile -d tfpm_atac_scan -m 8G -t 4h -r 1 "${q[@]}"
+    wr add -f "$out/analyze_jobs.txt" -i tfpm-atac-analyze -e tfpm_atac_analyze -d tfpm_atac_compile -m 12G -t 12h -r 3 "${q[@]}"
+    echo "$agg" | wr add -i tfpm-atac-aggregate -d tfpm_atac_analyze -m 8G -t 2h -r 1 "${q[@]}"
+    echo "Queued $nscan scan + compile + $nana analyze + aggregate. Check: tfpm status --run $run"
+  else
+    setsid nohup bash -c "set -e; xargs -P $par -I{} bash -c '{}' < '$out/scan_jobs.txt'; $compile; xargs -P $par -I{} bash -c '{}' < '$out/analyze_jobs.txt'; $agg; touch '$out/logs/local.finished'" > "$out/logs/local.log" 2>&1 &
+    echo "Started CATlas scan/analyze locally ($par parallel); log $out/logs/local.log"
+  fi
+}
+
 case "${1:-}" in
   setup) shift; cmd_setup "$@";; mine) shift; cmd_mine "$@";; status) cmd_status;;
-  publish) shift; cmd_publish "$@";; aggregate) cmd_aggregate;; replicate) shift; cmd_replicate "$@";; replicate-aggregate) shift; cmd_rep_aggregate "$@";; embed) shift; cmd_embed "$@";; *) usage;;
+  publish) shift; cmd_publish "$@";; aggregate) cmd_aggregate;; replicate) shift; cmd_replicate "$@";; atac) shift; cmd_atac "$@";; replicate-aggregate) shift; cmd_rep_aggregate "$@";; embed) shift; cmd_embed "$@";; *) usage;;
 esac

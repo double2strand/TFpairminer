@@ -28,3 +28,6 @@ a.brand{color:#fff;text-decoration:none}.searchbox{position:relative;flex:1;min-
 .crumb{color:var(--muted);font-size:12px;margin-bottom:6px}.kv{display:flex;gap:14px;flex-wrap:wrap;font-size:13px}.kv span b{font-weight:600}
 
 .b-rep{background:#bbf7d0;color:#14532d;font-weight:600}.b-cell{background:#fef9c3;color:#713f12}.b-no{background:#fee2e2;color:#991b1b}.b-inc{background:#e0e7ff;color:#3730a3}
+.b-proxy{background:#ffedd5;color:#9a3412;border:1px dashed #f97316}.b-proxyno{background:#fff7ed;color:#9a3412;border:1px dashed #fdba74}
+.caveat{background:#fefce8;border-left:3px solid #eab308;padding:6px 10px;font-size:13px}.caveat.proxy{background:#fff7ed;border-color:#f97316}
+.card{overflow-x:auto}
