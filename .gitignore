@@ -1,4 +1,4 @@
-.venv/
+.venv
 /run/
 /run_*/
 *.pyc

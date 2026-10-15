@@ -4,9 +4,9 @@
  "runs": [
   {
    "run_id": "2025-11-08_exploratory_pilot_25c84764",
-   "label": "Pilot v1 cell-level screen (cell_raw) \u00b7 liver cholangiocyte, 2 strata",
+   "label": "Pilot v1 cell-level screen (cell_raw) \u00b7 liver cholangiocyte + Tabula Sapiens replication",
    "pilot": true,
-   "exported_at": "2026-10-15T14:50:00+00:00",
+   "exported_at": "2026-10-15T15:38:02+00:00",
    "census": "2025-11-08",
    "n_datasets": 1,
    "pair_rows": 70,

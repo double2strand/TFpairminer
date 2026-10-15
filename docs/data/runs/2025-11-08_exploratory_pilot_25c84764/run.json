@@ -1,10 +1,10 @@
 {
  "schema_version": 2,
  "run_id": "2025-11-08_exploratory_pilot_25c84764",
- "label": "Pilot v1 cell-level screen (cell_raw) \u00b7 liver cholangiocyte, 2 strata",
+ "label": "Pilot v1 cell-level screen (cell_raw) \u00b7 liver cholangiocyte + Tabula Sapiens replication",
  "pilot": true,
- "exported_at": "2026-10-15T14:50:00+00:00",
- "code_commit_at_export": "1a0efc6",
+ "exported_at": "2026-10-15T15:38:02+00:00",
+ "code_commit_at_export": "4ccafc7",
  "source_run_dir": "/workspace/pilot_liver_v1",
  "warnings": [],
  "manifest": {
@@ -185,9 +185,55 @@
    "title": "CELLxGENE Census discovery"
   },
   "replication": {
-   "status": "not_run",
-   "title": "Replication (SCEA / Tabula Sapiens)",
-   "column": "replication"
+   "status": "done",
+   "title": "Replication (Tabula Sapiens; SCEA pending)",
+   "column": "replication",
+   "dataset": "Tabula Sapiens - All Cells",
+   "dataset_id": "53d208b0-2cfd-4366-9866-c3c6114081bc",
+   "thresholds": {
+    "min_cells": 100,
+    "min_detection": 0.05,
+    "min_rho": 0.25,
+    "min_lift": 1.1,
+    "min_codetected": 25,
+    "min_donor_cells": 20,
+    "min_donors": 2,
+    "min_positive_donor_fraction": 0.75,
+    "assay_ids": []
+   },
+   "summary": {
+    "n_candidates_planned": 70,
+    "n_contexts_planned": 1,
+    "n_contexts_completed": 1,
+    "complete": true,
+    "n_candidates_summarized": 70,
+    "per_assay_status_counts": {
+     "replicated_donor_supported": 29,
+     "not_replicated": 40,
+     "inconclusive_low_expression": 1,
+     "insufficient_cells": 70
+    },
+    "best_candidate_status_counts": {
+     "replicated_donor_supported": 29,
+     "not_replicated": 40,
+     "inconclusive_low_expression": 1
+    },
+    "thresholds": {
+     "min_cells": 100,
+     "min_detection": 0.05,
+     "min_rho": 0.25,
+     "min_lift": 1.1,
+     "min_codetected": 25,
+     "min_donor_cells": 20,
+     "min_donors": 2,
+     "min_positive_donor_fraction": 0.75,
+     "assay_ids": []
+    },
+    "ts_dataset_id": "53d208b0-2cfd-4366-9866-c3c6114081bc",
+    "source_atlas_wide": false
+   },
+   "independence_note": "Biologically distinct Tabula Sapiens study accessed through the same Census portal; source dataset overlap was prohibited",
+   "complete": true
   },
   "scatac": {
    "status": "not_run",
@@ -207,7 +253,9 @@
   "cell_type_pair_candidates.tsv": "cell_type_pair_candidates.tsv",
   "positive_controls.tsv": "positive_controls.tsv",
   "manifest.json": "manifest.json",
-  "summary.json": "summary.json"
+  "summary.json": "summary.json",
+  "replication_results.tsv.gz": "replication_results.tsv.gz",
+  "replication_candidate_summary.tsv.gz": "replication_candidate_summary.tsv.gz"
  },
  "embedding": {
   "status": "done",

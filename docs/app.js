@@ -1,6 +1,6 @@
 "use strict";
 /* TF Pair Miner — results explorer. Data: data/runs/index.json + per-run sharded JSON (schema_version 2). */
-const D = {cache: {}}; const S = {sort: {k: "min_q", dir: 1}, f: {r: "", q: "", mq: "", lift: "", coll: "", prior: false}};
+const D = {cache: {}}; const S = {sort: {k: "min_q", dir: 1}, f: {r: "", q: "", mq: "", lift: "", coll: "", prior: false, rep: false}};
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const fmt = (v, d = 3) => v == null || v === "" ? "–" : (typeof v === "number" && !Number.isInteger(v) ? (Math.abs(v) < 1e-3 && v !== 0 ? v.toExponential(1) : v.toFixed(d)) : v);
@@ -34,7 +34,14 @@ function layerBadges(compact) {
   const b = (st, t) => `<span class="badge ${st === "done" ? "b-done" : "b-todo"}">${esc(t)}: ${st === "done" ? "done" : "not yet run"}</span>`;
   return `<div class="layers">${b((L.discovery_cellxgene || {}).status || "done", "CELLxGENE discovery")}${b(emb.status || "not_run", "Per-cell UMAP")}${b((L.replication || {}).status || "not_run", "Replication (SCEA / Tabula Sapiens)")}${b((L.scatac || {}).status || "not_run", "scATAC evidence A–D")}</div>`;
 }
-const repCell = p => p.replication == null ? `<span class="badge b-todo">not yet run</span>` : esc(p.replication);
+const REP = {replicated_donor_supported: ["replicated", "b-rep"], cell_level_support_only: ["cell-level only", "b-cell"], not_replicated: ["not replicated", "b-no"],
+  inconclusive_low_expression: ["inconclusive", "b-inc"], insufficient_cells: ["insufficient cells", "b-inc"], gene_unavailable: ["gene unavailable", "b-inc"],
+  no_cell_type_match: ["no TS cell type", "b-todo"], no_matching_context: ["no TS context", "b-todo"], no_allowed_assay: ["no TS assay", "b-todo"]};
+const repBadge = (st, title) => { const [l, c] = REP[st] || [st, "b-todo"]; return `<span class="badge ${c}" title="${esc(title || st)}">${esc(l)}</span>`; };
+const repLayerDone = () => ((D.run.layers || {}).replication || {}).status === "done";
+const repCell = p => p.replication == null ? (repLayerDone() ? `<span class="badge b-todo">not tested</span>` : `<span class="badge b-todo">not yet run</span>`)
+  : repBadge(p.replication.status, `${p.replication.assay || ""} ${p.replication.reason || ""}`);
+const isRep = p => p.replication && p.replication.status === "replicated_donor_supported";
 const atacCell = p => p.atac_level == null ? `<span class="badge b-todo">not yet run</span>` : `<span class="badge b-done">${esc(p.atac_level)}</span>`;
 
 /* ---------- search with autocomplete ---------- */
@@ -63,7 +70,7 @@ async function route() {
   const h = decodeURIComponent(location.hash.slice(1) || "home"); const i = h.indexOf("/"); const m = i < 0 ? h : h.slice(0, i), arg = i < 0 ? "" : h.slice(i + 1);
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.mode === m));
   window.scrollTo(0, 0);
-  try { await ({home, table, info, about, tf: () => tfPage(arg), ct: () => ctPage(+arg), pair: () => pairPage(arg)}[m] || home)(); }
+  try { await ({home, table, info, about, tf: () => tfPage(arg), ct: () => ctPage(+arg), pair: () => pairPage(arg)}[m === "table" && arg === "replicated" ? (S.f.rep = true, "table") : m] || home)(); }
   catch (e) { $("#app").innerHTML = `<div class="card">Error: ${esc(e.message)}</div>`; console.error(e); }
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => go(b.dataset.mode));
@@ -198,8 +205,9 @@ async function pairPage(arg) {
    <h3>Evidence layers</h3><table><tr><th>Layer</th><th>Status</th><th>Evidence</th></tr>
    <tr><td>CELLxGENE discovery</td><td><span class="badge b-done">done</span></td><td>${best ? `${P.length} context(s); best ${esc(best.primary_stat)} r = ${fmt(best.primary_r)}, q = ${fmt(best.min_q)}; meta k = ${best.k_meta ?? 0}` : "no passing context"}</td></tr>
    <tr><td>Literature / physical prior</td><td><span class="badge ${best && best.prior ? "b-done" : "b-todo"}">${best && best.prior ? "recorded" : "none recorded"}</span></td><td>${best && best.prior ? `${esc(best.prior_evidence)}; ${esc(best.prior_classes)}; Pair_ID ${esc(best.pair_id || "–")}; PMIDs ${(best.pmids || "").split(" | ").filter(Boolean).slice(0, 8).map(x => `<a href="https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(x)}/" target="_blank" rel="noopener">${esc(x)}</a>`).join(" ")}` : "Not recorded in the compendium. That doesn't mean the pair doesn't interact."}</td></tr>
-   <tr><td>Replication (SCEA / Tabula Sapiens)</td><td><span class="badge b-todo">not yet run</span></td><td class="muted">This layer will be filled in by a later pipeline stage</td></tr>
+   ${repRow(P)}
    <tr><td>scATAC evidence (A–D)</td><td><span class="badge b-todo">not yet run</span></td><td class="muted">Levels A–D: motif co-accessibility, with motif ambiguity handled</td></tr></table></div>
+   ${repTable(P)}
    <div class="card"><h2>All evidence rows</h2>${P.length ? pairTable(P) : '<p class="muted">none</p>'}</div>
    <div class="card"><h2>Detection by cell context</h2><div id="det" class="plot"></div></div>
    <div class="card"><h2>Per-cell expression</h2><div id="embsel"></div><div class="grid3"><div id="uA" class="plot"></div><div id="uB" class="plot"></div><div id="uC" class="plot"></div></div><div id="umn"></div>
@@ -227,19 +235,34 @@ async function pairPage(arg) {
   await draw(0); if ($("#es")) $("#es").onchange = e => draw(+e.target.value);
 }
 
+function repRow(P) {
+  const L = (D.run.layers || {}).replication || {};
+  if (L.status !== "done") return `<tr><td>Replication (SCEA / Tabula Sapiens)</td><td><span class="badge b-todo">not yet run</span></td><td class="muted">This layer will be filled in by a later pipeline stage</td></tr>`;
+  const R = P.filter(p => p.replication); const best = R.sort((a, b) => (isRep(b) - isRep(a)))[0];
+  return `<tr><td>Replication (${esc(L.dataset || "Tabula Sapiens")})</td><td>${best ? repBadge(best.replication.status) : '<span class="badge b-todo">not tested</span>'}</td><td>${best ? `${R.filter(isRep).length} of ${R.length} discovery context(s) replicated; best: ${esc(best.replication.assay || "")}, ${best.replication.n_cells ?? "–"} cells, ${best.replication.n_donors ?? "–"} donors, r = ${fmt(best.replication.r)}, lift = ${fmt(best.replication.lift)}, positive donors ${fmt(best.replication.pos_donor_frac)}` : "No candidate row for this pair was sent to replication"}</td></tr>`;
+}
+function repTable(P) {
+  const L = (D.run.layers || {}).replication || {}; if (L.status !== "done") return "";
+  const R = P.filter(p => p.replication); if (!R.length) return "";
+  const t = L.thresholds || {};
+  return `<div class="card"><h2>Replication in ${esc(L.dataset || "Tabula Sapiens")} by assay</h2><p class="muted">Same cell type × tissue × disease; independent donors and datasets (discovery datasets excluded). Thresholds: ≥${t.min_cells} cells, detection ≥${t.min_detection}, r ≥${t.min_rho}, lift ≥${t.min_lift}, co-detected ≥${t.min_codetected}; donor support = ≥${t.min_donors} donors with ≥${t.min_donor_cells} cells and ≥${t.min_positive_donor_fraction} of donors positive. ${esc(L.independence_note || "")}</p>
+   <table><tr><th>Discovery context</th><th>TS assay</th><th>Status</th><th>Cells</th><th>Donors</th><th>r</th><th>Lift</th><th>Co-detected</th><th>Det A</th><th>Det B</th><th>Donor mean r</th><th>Donors tested</th><th>Positive donors</th><th>Reason</th></tr>
+   ${R.flatMap(p => (p.replication.assays.length ? p.replication.assays : [p.replication]).map(a => `<tr><td>${esc(p.ct)} · ${esc(p.assay)}</td><td>${esc(a.assay || "–")}</td><td>${repBadge(a.status)}</td><td class="n">${a.n_cells ?? "–"}</td><td class="n">${a.n_donors ?? "–"}</td><td class="n">${fmt(a.r)}</td><td class="n">${fmt(a.lift)}</td><td class="n">${a.codetected ?? "–"}</td><td class="n">${fmt(a.tf1_det)}</td><td class="n">${fmt(a.tf2_det)}</td><td class="n">${fmt(a.donor_mean_r)}</td><td class="n">${a.donors_tested ?? "–"}</td><td class="n">${fmt(a.pos_donor_frac)}</td><td class="muted">${esc(a.reason || "")}</td></tr>`)).join("")}</table></div>`;
+}
+
 function bindSort(P, fn, arg) { document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => { const k = th.dataset.k; S.sort = {k, dir: S.sort.k === k ? -S.sort.dir : (k === "min_q" || k === "meta_q" ? 1 : -1)}; route(); }); }
 
 async function table() {
   const f = S.f;
   const P = sortBy(D.TOP.filter(p => (f.r === "" || (p.primary_r ?? p.r) >= +f.r) && (f.q === "" || (p.min_q != null && p.min_q <= +f.q)) && (f.mq === "" || (p.meta_q != null && p.meta_q <= +f.mq))
-    && (f.lift === "" || p.lift >= +f.lift) && (f.coll === "" || p.n_collections >= +f.coll) && (!f.prior || p.prior)), S.sort.k, S.sort.dir);
+    && (f.lift === "" || p.lift >= +f.lift) && (f.coll === "" || p.n_collections >= +f.coll) && (!f.prior || p.prior) && (!f.rep || isRep(p))), S.sort.k, S.sort.dir);
   const rc = D.run.summary.run_config, m = D.run.manifest;
   $("#app").innerHTML = `<div class="card"><h2>Scientific table</h2><p class="muted">Top ${D.TOP.length} of ${D.top.total} rows. <a href="${base()}${esc(D.run.downloads["cell_type_pair_candidates.tsv"])}" download>Download the full TSV</a>.</p><div class="filters">
    <label>Min primary r<input id="fr" type="number" step="0.05" value="${f.r}"></label><label>Max q<input id="fq" type="number" step="0.01" value="${f.q}"></label><label>Max meta q<input id="fmq" type="number" step="0.01" value="${f.mq}"></label>
-   <label>Min lift<input id="fl" type="number" step="0.1" value="${f.lift}"></label><label>Min collections<input id="fc" type="number" min="1" value="${f.coll}"></label><label><span>Prior only</span><input id="fp" type="checkbox" ${f.prior ? "checked" : ""} style="width:auto"></label><span class="muted">${P.length} rows</span></div>
+   <label>Min lift<input id="fl" type="number" step="0.1" value="${f.lift}"></label><label>Min collections<input id="fc" type="number" min="1" value="${f.coll}"></label><label><span>Prior only</span><input id="fp" type="checkbox" ${f.prior ? "checked" : ""} style="width:auto"></label><label><span>Replicated only</span><input id="frep" type="checkbox" ${f.rep ? "checked" : ""} ${repLayerDone() ? "" : "disabled"} style="width:auto"></label><span class="muted">${P.length} rows</span></div>
    <p class="muted">Primary statistic <b>${esc(rc.primary_stat || "cell_raw")}</b>; detection ≥ ${rc.min_detection}; r ≥ ${rc.min_rho}; ${rc.primary_stat && rc.primary_stat !== "cell_raw" ? `BH q ≤ ${rc.max_q}; ` : ""}lift ≥ ${rc.min_lift}; co-detected ≥ ${rc.min_codetected}; min cells ${rc.min_cells}. Census ${esc(m.resolved_census_version)}.</p>${pairTable(P)}</div>`;
-  const upd = () => { S.f = {r: $("#fr").value, q: $("#fq").value, mq: $("#fmq").value, lift: $("#fl").value, coll: $("#fc").value, prior: $("#fp").checked}; table(); };
-  ["#fr", "#fq", "#fmq", "#fl", "#fc", "#fp"].forEach(s => $(s).addEventListener("change", upd)); bindSort();
+  const upd = () => { S.f = {r: $("#fr").value, q: $("#fq").value, mq: $("#fmq").value, lift: $("#fl").value, coll: $("#fc").value, prior: $("#fp").checked, rep: $("#frep").checked}; table(); };
+  ["#fr", "#fq", "#fmq", "#fl", "#fc", "#fp", "#frep"].forEach(s => $(s).addEventListener("change", upd)); bindSort();
 }
 
 function info() {
@@ -254,7 +277,7 @@ function info() {
    ${row("All runs", D.index.runs.map(x => `<a href="?run=${encodeURIComponent(x.run_id)}#home">${esc(x.label || x.run_id)}</a>${x.run_id === D.index.latest ? " (default)" : ""}`).join("<br>"))}</table></div>`;
 }
 function about() {
-  $("#app").innerHTML = `<div class="card"><h2>About</h2><p>This tool screens human single-cell RNA data in the CELLxGENE Census for transcription-factor pairs that are co-expressed within the same cell type × tissue × disease × assay context. For each pair it reports correlation (raw cell-level, or donor- and library-adjusted metacell/pseudobulk), co-detection lift, Benjamini–Hochberg q within each context, a cross-dataset meta-analysis, and literature priors from the TF compendium. The results are candidates for wet-lab testing, not proof that the TFs cooperate. Later layers (replication in SCEA / Tabula Sapiens, scATAC evidence A–D) will appear as columns and badges.</p></div>
+  $("#app").innerHTML = `<div class="card"><h2>About</h2><p>This tool screens human single-cell RNA data in the CELLxGENE Census for transcription-factor pairs that are co-expressed within the same cell type × tissue × disease × assay context. For each pair it reports correlation (raw cell-level, or donor- and library-adjusted metacell/pseudobulk), co-detection lift, Benjamini–Hochberg q within each context, a cross-dataset meta-analysis, and literature priors from the TF compendium. The results are candidates for wet-lab testing, not proof that the TFs cooperate. Replication in Tabula Sapiens (independent donors, same cell type × tissue × disease; discovery datasets excluded) is shown as badges and a per-assay table when a run has it; SCEA replication and scATAC evidence A–D are later layers.</p></div>
    <div class="card"><h2>Run it</h2><pre>git clone https://github.com/double2strand/TFpairminer.git && cd TFpairminer
 ./tfpm setup                    # venv, deps, tests, Census plan
 ./tfpm mine --runner wr         # cluster (wr manager must be running); or --runner local --parallel 6

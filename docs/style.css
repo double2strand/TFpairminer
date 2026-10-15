@@ -26,3 +26,5 @@ a.brand{color:#fff;text-decoration:none}.searchbox{position:relative;flex:1;min-
 .badge{display:inline-block;border-radius:10px;padding:1px 8px;font-size:11px;margin-right:4px}.b-done{background:#dcfce7;color:#166534}.b-todo{background:#f3f4f6;color:#6b7280;border:1px dashed #cbd5e1}
 .layers{margin-top:6px}.plot{width:100%;min-height:340px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}@media(max-width:1000px){.grid3{grid-template-columns:1fr}}
 .crumb{color:var(--muted);font-size:12px;margin-bottom:6px}.kv{display:flex;gap:14px;flex-wrap:wrap;font-size:13px}.kv span b{font-weight:600}
+
+.b-rep{background:#bbf7d0;color:#14532d;font-weight:600}.b-cell{background:#fef9c3;color:#713f12}.b-no{background:#fee2e2;color:#991b1b}.b-inc{background:#e0e7ff;color:#3730a3}

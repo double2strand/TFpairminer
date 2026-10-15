@@ -23,6 +23,8 @@ Usage:
   tfpm publish [--run DIR] [--label T]  validate -> aggregate if needed -> versioned JSON -> git commit + push
   tfpm embed [--run DIR] [--max-cells N] optional UMAP + per-cell TF expression layer for the site (then publish)
   tfpm publish ... --embed              publish including the embedding layer
+  tfpm replicate --runner wr|local [--run DIR] [-- plan flags e.g. --min-codetected 25 --assay-id EFO:0009922]
+                                        Tabula Sapiens replication of the run's candidates (publish picks it up)
   tfpm aggregate                        (run automatically by mine; re-aggregates safely)
 Output dir: $OUT   Census: $CENSUS   Shards: $SHARDS
 U
@@ -101,6 +103,12 @@ cmd_status(){
     [ -f "$OUT/logs/local.finished" ] && echo "Local run + aggregate finished."
   fi
   [ -f "$OUT/aggregate/summary.json" ] && { echo "Aggregate summary:"; cat "$OUT/aggregate/summary.json"; }
+  local rep="${TFPM_REP_OUT:-$OUT/replication_ts}"
+  if [ -f "$rep/contexts.tsv" ]; then
+    echo "Replication contexts done: $(ls "$rep"/groups/*.done 2>/dev/null | wc -l) / $(( $(wc -l < "$rep/contexts.tsv") - 1 ))"
+    command -v wr >/dev/null && wr manager status >/dev/null 2>&1 && { wr status -i tfpm-rep -o s 2>/dev/null; wr status -i tfpm-rep-aggregate -o s 2>/dev/null; } || true
+    [ -f "$rep/aggregate/summary.json" ] && cat "$rep/aggregate/summary.json"
+  fi
   return 0
 }
 
@@ -127,7 +135,40 @@ cmd_embed(){
   "$PY" "$ROOT/scripts/embed_export.py" --run "$run" --site-data "$ROOT/docs/data" --run-id "$(cat "$run/aggregate/published_run_id")" "${args[@]}"
 }
 
+# ---- replication (Tabula Sapiens validation; mining/tabula_sapiens_validate.py) ----
+REPV="$ROOT/mining/tabula_sapiens_validate.py"
+cmd_replicate(){
+  local run="$OUT" runner="" par=4 plan_args=()
+  while [ $# -gt 0 ]; do case "$1" in
+    --run) run="$(readlink -m "$2")"; shift 2;; --runner) runner="$2"; shift 2;; --parallel|-P) par="$2"; shift 2;;
+    --) shift; plan_args=("$@"); break;; *) die "unknown option $1";; esac; done
+  local rep="${TFPM_REP_OUT:-$run/replication_ts}"
+  [ -f "$run/aggregate/cell_type_pair_candidates.tsv" ] || die "no discovery aggregate in $run (run tfpm mine first)"
+  if [ ! -f "$rep/manifest.json" ]; then (cd "$ROOT/mining" && "$PY" "$REPV" plan --discovery-run "$run" --out "$rep" "${plan_args[@]}"); fi
+  local nctx; nctx=$(( $(wc -l < "$rep/contexts.tsv") - 1 ))
+  local shards="${TFPM_REP_SHARDS:-$(( nctx < 100 ? nctx : 100 ))}"; [ "$shards" -ge 1 ] || shards=1
+  mkdir -p "$rep/logs"; : > "$rep/jobs.txt"
+  for ((i=0;i<shards;i++)); do echo "cd $ROOT/mining && $PY $REPV run --out $rep --num-shards $shards --shard-index $i --batch-size 1000 --tmpdir \"\${TMPDIR:-/tmp}\"" >> "$rep/jobs.txt"; done
+  case "$runner" in
+    wr) command -v wr >/dev/null || die "wr not on PATH"; wr manager status >/dev/null 2>&1 || die "start a wr manager first: wr manager start"
+        local q=(); [ -n "${TFPM_WR_QUEUE:-}" ] && q=(--queue "$TFPM_WR_QUEUE")
+        wr add -f "$rep/jobs.txt" -i tfpm-rep -e tfpm_rep_shards -m "${TFPM_WR_MEM:-32G}" -t "${TFPM_WR_TIME:-24h}" --cpus "${TFPM_WR_CPUS:-4}" -r 3 "${q[@]}"
+        echo "$ROOT/tfpm replicate-aggregate --run $run" | wr add -i tfpm-rep-aggregate -d tfpm_rep_shards -m 8G -t 2h -r 1 "${q[@]}"
+        echo "Queued $shards replication shard(s) + aggregate. Check: tfpm status --run $run";;
+    local) nohup bash -c "xargs -P $par -I{} bash -c '{}' < '$rep/jobs.txt' > '$rep/logs/local.log' 2>&1; '$ROOT/tfpm' replicate-aggregate --run '$run' >> '$rep/logs/local.log' 2>&1 && touch '$rep/logs/local.finished'" >/dev/null 2>&1 &
+        echo "Started $shards replication shard(s) locally ($par parallel). Check: tfpm status --run $run";;
+    *) die "use --runner wr or --runner local";;
+  esac
+}
+cmd_rep_aggregate(){
+  local run="$OUT"; [ "${1:-}" = "--run" ] && run="$(readlink -m "$2")"
+  local rep="${TFPM_REP_OUT:-$run/replication_ts}" stamp; stamp=$(date +%Y%m%d-%H%M%S)
+  [ -d "$rep/aggregate" ] && mv "$rep/aggregate" "$rep/aggregate.old.$stamp"
+  [ -f "$rep/candidate_summary.sqlite" ] && mv "$rep/candidate_summary.sqlite" "$rep/candidate_summary.sqlite.old.$stamp"
+  (cd "$ROOT/mining" && "$PY" "$REPV" aggregate --out "$rep")
+}
+
 case "${1:-}" in
   setup) shift; cmd_setup "$@";; mine) shift; cmd_mine "$@";; status) cmd_status;;
-  publish) shift; cmd_publish "$@";; aggregate) cmd_aggregate;; embed) shift; cmd_embed "$@";; *) usage;;
+  publish) shift; cmd_publish "$@";; aggregate) cmd_aggregate;; replicate) shift; cmd_replicate "$@";; replicate-aggregate) shift; cmd_rep_aggregate "$@";; embed) shift; cmd_embed "$@";; *) usage;;
 esac

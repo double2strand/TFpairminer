@@ -90,6 +90,7 @@ def main():
     p.add_argument("--run-id", default="", help="override the automatic run id")
     p.add_argument("--top-n", type=int, default=3000)
     p.add_argument("--min-profile-detection", type=float, default=0.02)
+    p.add_argument("--replication", default=None, help="Tabula Sapiens validation dir (default: <run>/replication_ts if aggregated)")
     p.add_argument("--no-latest", action="store_true", help="publish without making this the default run")
     a = p.parse_args()
     run = Path(a.run).resolve(); agg = run / "aggregate"
@@ -140,6 +141,23 @@ def main():
             tf_prof[sym].append([s, round(d, 4), round(mn, 4)])
             ct_prof[s].append([sym, round(d, 4), round(mn, 4)])
 
+    # ---- replication layer (Tabula Sapiens validation, mining/tabula_sapiens_validate.py)
+    rep_dir = Path(a.replication) if a.replication else run / "replication_ts"
+    rep_best, rep_assays, rep_info = {}, defaultdict(list), None
+    if (rep_dir / "aggregate" / "candidate_summary.tsv.gz").exists():
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mining"))
+        import tabula_sapiens_validate as tsv
+        rep_info = {"manifest": json.loads((rep_dir / "manifest.json").read_text()),
+                    "summary": json.loads((rep_dir / "aggregate" / "summary.json").read_text())}
+        def slim(r):
+            return {"status": r["validation_status"], "assay": r["ts_assay"], "n_cells": num(r["ts_n_cells"]), "n_donors": num(r["ts_n_donors"]),
+                    "r": num(r["ts_cell_r"]), "lift": num(r["ts_lift"]), "codetected": num(r["ts_codetected_cells"]),
+                    "tf1_det": num(r["ts_tf1_detection"]), "tf2_det": num(r["ts_tf2_detection"]), "donor_mean_r": num(r["ts_donor_mean_r"]),
+                    "donors_tested": num(r["ts_donors_tested"]), "pos_donor_frac": num(r["ts_positive_donor_fraction"]), "reason": r["reason"]}
+        for r in rows(rep_dir / "aggregate" / "replication_results.tsv.gz"):
+            rep_assays[r["candidate_id"]].append(slim(r))
+        for r in rows(rep_dir / "aggregate" / "candidate_summary.tsv.gz"):
+            rep_best[r["candidate_id"]] = {**slim(r), "n_assays_tested": num(r["n_assays_tested"]), "n_assays_reported": num(r["n_assays_reported"])}
     P = []
     for r in rows(agg / "cell_type_pair_candidates.tsv"):
         s = stratum(r)
@@ -152,6 +170,10 @@ def main():
         d1, d2 = det.get((s, r["tf1_ensembl"])), det.get((s, r["tf2_ensembl"]))
         row["tf1_det"] = None if d1 is None else round(d1, 4); row["tf2_det"] = None if d2 is None else round(d2, 4)
         row["replication"] = None; row["atac_level"] = None
+        if rep_info is not None:
+            cid = tsv.candidate_id(r)
+            if cid in rep_best:
+                row["replication"] = {**rep_best[cid], "candidate_id": cid, "assays": rep_assays.get(cid, [])}
         P.append([row[c] for c in PCOLS])
     # stable rank: collections desc, primary r desc
     ci, pi, ri = PCOLS.index("n_collections"), PCOLS.index("primary_r"), PCOLS.index("r")
@@ -186,10 +208,16 @@ def main():
     dump(out / "heatmap.json", {"tfs": htf, "strata": hs, "detection": [[hv.get((t, s)) for s in hs] for t in htf]})
 
     downloads = {}
-    for src in [agg / "cell_type_pair_candidates.tsv", agg / "positive_controls.tsv", run / "manifest.json", agg / "summary.json"]:
+    srcs = [agg / "cell_type_pair_candidates.tsv", agg / "positive_controls.tsv", run / "manifest.json", agg / "summary.json"]
+    if rep_info:
+        srcs += [rep_dir / "aggregate" / "replication_results.tsv.gz", rep_dir / "aggregate" / "candidate_summary.tsv.gz"]
+    for src in srcs:
         if not src.exists():
             continue
-        if src.stat().st_size > 40 * 1024 * 1024:
+        if src.suffix == ".gz":
+            name = src.name if src.name.startswith("replication_") else "replication_" + src.name
+            shutil.copyfile(src, out / name); downloads[name] = name
+        elif src.stat().st_size > 40 * 1024 * 1024:
             with open(src, "rb") as fi, gzip.open(out / (src.name + ".gz"), "wb") as fo:
                 shutil.copyfileobj(fi, fo)
             downloads[src.name] = src.name + ".gz"
@@ -207,7 +235,11 @@ def main():
             "counts": {"pair_rows": len(P), "unique_pairs": len({(x[1], x[2]) for x in P}), "strata": len(strata),
                        "tfs": len(tfs), "pairs_with_prior": sum(x[pr] for x in P)},
             "layers": {"discovery_cellxgene": {"status": "done", "title": "CELLxGENE Census discovery"},
-                       "replication": {"status": "not_run", "title": "Replication (SCEA / Tabula Sapiens)", "column": "replication"},
+                       "replication": {"status": "done" if rep_info else "not_run", "title": "Replication (Tabula Sapiens; SCEA pending)", "column": "replication",
+                                       **({"dataset": rep_info["manifest"]["ts_dataset_title"], "dataset_id": rep_info["manifest"]["ts_dataset_id"],
+                                           "thresholds": rep_info["manifest"]["thresholds"], "summary": rep_info["summary"],
+                                           "independence_note": rep_info["manifest"].get("independence_note", ""),
+                                           "complete": rep_info["summary"].get("complete")} if rep_info else {})},
                        "scatac": {"status": "not_run", "title": "scATAC evidence (levels A-D)", "column": "atac_level", "levels": ["A", "B", "C", "D"]}},
             "profile_detection_floor": a.min_profile_detection, "top_n": a.top_n, "downloads": downloads}
     if keep_embed is not None:

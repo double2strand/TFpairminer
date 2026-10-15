@@ -172,6 +172,10 @@ def command_plan(args):
             missing = sorted(set(args.dataset_id) - set(data["dataset_id"]))
             if missing:
                 raise ValueError(f"Dataset IDs absent from Census: {missing}")
+        if args.exclude_collection_id:
+            data = data[~data["collection_id"].isin(args.exclude_collection_id)]
+        if args.exclude_collection_name:
+            data = data[~data["collection_name"].isin(args.exclude_collection_name)]
         data = data.sort_values("dataset_id")
         if args.max_datasets:
             data = data.head(args.max_datasets)
@@ -188,6 +192,8 @@ def command_plan(args):
                 "n_tf_mapped": sum(r["is_tf"] for r in feature_rows), "n_datasets": len(dataset_rows),
                 "dataset_selection": "explicit_ids" if args.dataset_id else ("first_n" if args.max_datasets else "all"),
                 "normalization": "log1p(10000 * raw_count / obs.raw_sum); raw_sum > 0",
+                "excluded_collection_ids": sorted(set(args.exclude_collection_id)),
+                "excluded_collection_names": sorted(set(args.exclude_collection_name)),
                 "filters": "Homo sapiens; is_primary_data == True; cell type/tissue/disease/assay stratified"}
     write_json_atomic(out / "manifest.json", manifest)
     print(json.dumps(manifest, indent=2))
@@ -318,8 +324,11 @@ class Accumulator:
     pseudobulk : partial r over donor means (donors with >= min_donor_cells cells; library size adjusted)
     """
 
-    def __init__(self, features, metacell_size=20, min_donor_cells=10):
+    def __init__(self, features, metacell_size=20, min_donor_cells=10, track_donor_covariance=False):
         self.features = features
+        self.track_donor_covariance = track_donor_covariance
+        self.donor_sum_sq = {}
+        self.donor_gram = {}
         self.metacell_size = metacell_size
         self.min_donor_cells = min_donor_cells
         self.tf_indices = np.array([i for i, f in enumerate(features) if f["is_tf"]], dtype=np.int64)
@@ -378,6 +387,17 @@ class Accumulator:
             cnt = self.groups[gk][0]
             self.groups[gk][0] = cnt + 1
             mkeys.append((gk, cnt // self.metacell_size))
+        if self.track_donor_covariance:   # per-donor second moments (Tabula Sapiens validation)
+            for donor in set(gkeys):
+                if donor == "__unknown__":
+                    continue
+                rows = np.array([i for i, g in enumerate(gkeys) if g == donor], dtype=int)
+                dy = yt[rows]
+                t = len(self.tf_indices)
+                if donor not in self.donor_sum_sq:
+                    self.donor_sum_sq[donor] = np.zeros(t); self.donor_gram[donor] = np.zeros((t, t))
+                self.donor_sum_sq[donor] += np.asarray(dy.power(2).sum(axis=0)).ravel()
+                self.donor_gram[donor] += (dy.T @ dy).toarray()
         for keys, store in ((gkeys, self.groups), (mkeys, self.mc)):
             uniq = {}
             rows = np.array([uniq.setdefault(k, len(uniq)) for k in keys], dtype=np.int64)
@@ -749,9 +769,14 @@ def command_aggregate(args):
     write_tsv(target / "positive_controls.tsv", controls, ["pair", "n_contexts_with_hit", "max_collections", "best_primary_r", "min_q"])
     conn.close()
     plan_complete = len(completed) == planned
+    broad_scope_complete = plan_complete and manifest.get("dataset_selection") == "all" and run_config.get("max_strata", 0) == 0
+    held_out = bool(manifest.get("excluded_collection_ids") or manifest.get("excluded_collection_names"))
     write_json_atomic(target / "summary.json", {"n_planned_datasets": planned, "n_completed_datasets": len(completed),
                                                 "complete": plan_complete,
-                                                "atlas_wide": plan_complete and manifest.get("dataset_selection") == "all" and run_config.get("max_strata", 0) == 0,
+                                                "atlas_wide": broad_scope_complete and not held_out,
+                                                "atlas_wide_except_heldout_collections": broad_scope_complete and held_out,
+                                                "excluded_collection_ids": manifest.get("excluded_collection_ids", []),
+                                                "excluded_collection_names": manifest.get("excluded_collection_names", []),
                                                 "dataset_selection": manifest.get("dataset_selection", "unknown"),
                                                 "run_config": run_config, "schema_version": SCHEMA_VERSION,
                                                 "n_candidate_rows": len(out_rows),
@@ -769,6 +794,8 @@ def main():
     plan.add_argument("--census-version", default="stable", help="stable or an explicit Census release date")
     plan.add_argument("--tf-set", choices=["strict", "exploratory", "expanded"], default="exploratory")
     plan.add_argument("--dataset-id", action="append", default=[], help="Repeat to select pilot datasets")
+    plan.add_argument("--exclude-collection-id", action="append", default=[], help="Exclude a source collection from discovery; repeatable")
+    plan.add_argument("--exclude-collection-name", action="append", default=[], help="Exclude a source collection by its exact release-specific name")
     plan.add_argument("--max-datasets", type=int, default=0, help="Pilot only; first N datasets by ID")
     plan.set_defaults(func=command_plan)
     run = sub.add_parser("run", help="Mine dataset shards from a pinned Census")
