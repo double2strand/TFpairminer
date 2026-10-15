@@ -109,7 +109,7 @@ function pairTable(P, opts = {}) {
   const cols = opts.cols ? COLS.filter(c => opts.cols.includes(c[0])) : COLS;
   const head = cols.map(([k, l]) => `<th data-k="${k}" class="${S.sort.k === k ? "sorted" : ""}" data-dir="${S.sort.dir > 0 ? " ▲" : " ▼"}">${l}</th>`).join("");
   const cell = (p, k) => { const v = p[k];
-    if (k === "tf1" || k === "tf2") return `<td><a onclick="go('tf/${esc(v)}')">${esc(v)}</a> <a class="muted" title="pair page" onclick="go('pair/${esc(p.tf1)}:${esc(p.tf2)}')">⇄</a></td>`;
+    if (k === "tf1" || k === "tf2") return `<td><a onclick="go('tf/${esc(v)}')">${esc(v)}</a> <a class="pairbtn" title="open the ${esc(p.tf1)}:${esc(p.tf2)} pair page for this cell context" onclick="go('pair/${esc(p.tf1)}:${esc(p.tf2)}@${p.s}')">⇄</a></td>`;
     if (k === "ct") return `<td><a onclick="go('ct/${p.s}')" title="${esc(p.st.cell_type_id)}">${esc(v)}</a></td>`;
     if (k === "tf1_det" || k === "tf2_det") return `<td class="n">${pct(v)}</td>`;
     if (k in NUM) return `<td class="n">${fmt(v, NUM[k])}</td>`;
@@ -118,7 +118,7 @@ function pairTable(P, opts = {}) {
     if (k === "replication") return `<td>${repCell(p)}</td>`; if (k === "atac_level") return `<td>${atacCell(p)}</td>`;
     return typeof v === "number" ? `<td class="n">${v}</td>` : `<td>${esc(v)}</td>`; };
   const lim = opts.limit || 2000;
-  return `<div class="tablewrap"><table><tr>${head}</tr>${P.slice(0, lim).map(p => `<tr>${cols.map(([k]) => cell(p, k)).join("")}</tr>`).join("")}</table></div>${P.length > lim ? `<p class="muted">Showing ${lim} of ${P.length}.</p>` : ""}`;
+  return `<div class="tablewrap"><table><tr>${head}</tr>${P.slice(0, lim).map(p => `<tr class="prow${opts.hl != null && p.s === opts.hl ? " hl" : ""}" tabindex="0" role="link" data-go="pair/${esc(p.tf1)}:${esc(p.tf2)}@${p.s}" title="Open the ${esc(p.tf1)}:${esc(p.tf2)} pair page (${esc(p.ct)}, ${esc(p.assay)})">${cols.map(([k]) => cell(p, k)).join("")}</tr>`).join("")}</table></div>${P.length > lim ? `<p class="muted">Showing ${lim} of ${P.length}.</p>` : ""}`;
 }
 function sortBy(a, k, dir) { return a.sort((x, y) => { const u = x[k] ?? (dir > 0 ? Infinity : -Infinity), v = y[k] ?? (dir > 0 ? Infinity : -Infinity); return u > v ? dir : u < v ? -dir : rank(x, y); }); }
 
@@ -165,7 +165,7 @@ async function tfPage(tf) {
   const plist = Object.entries(partners).map(([o, ps]) => ({o, ps, best: ps.slice().sort(rank)[0]})).sort((a, b) => rank(a.best, b.best));
   $("#app").innerHTML = `<div class="crumb"><a onclick="go('home')">Explore</a> › TF</div><div class="card"><h2>${esc(tf)}</h2><div class="stats">${stat(plist.length, "candidate partners")}${stat(P.length, "pair × cell-type rows")}${stat(sh.profile.length, "contexts expressed (≥" + D.run.profile_detection_floor * 100 + "%)")}</div>${layerBadges()}</div>
    <div class="grid"><div class="card"><h2>Partners ranked by significance</h2><div class="tablewrap" style="max-height:420px"><table><tr><th>#</th><th>Partner</th><th>Best q</th><th>Best r</th><th>Cell types</th><th>Prior</th><th>Replication</th><th>scATAC</th></tr>
-   ${plist.map((x, i) => `<tr><td>${i + 1}</td><td><a onclick="go('pair/${esc(tf)}:${esc(x.o)}')">${esc(x.o)}</a></td><td class="n">${fmt(sig(x.best))}</td><td class="n">${fmt(x.best.primary_r ?? x.best.r)}</td><td>${[...new Set(x.ps.map(p => p.ct))].map(esc).join(", ")}</td><td>${x.ps.some(p => p.prior) ? '<span class="pill">yes</span>' : ""}</td><td>${repCell(x.best)}</td><td>${atacCell(x.best)}</td></tr>`).join("") || '<tr><td colspan="8" class="muted">No passing partners in this run</td></tr>'}</table></div></div>
+   ${plist.map((x, i) => `<tr class="prow" tabindex="0" role="link" data-go="pair/${esc(tf)}:${esc(x.o)}@${x.best.s}" title="Open the ${esc(tf)}:${esc(x.o)} pair page"><td>${i + 1}</td><td><a onclick="go('pair/${esc(tf)}:${esc(x.o)}')">${esc(x.o)}</a></td><td class="n">${fmt(sig(x.best))}</td><td class="n">${fmt(x.best.primary_r ?? x.best.r)}</td><td>${[...new Set(x.ps.map(p => p.ct))].map(esc).join(", ")}</td><td>${x.ps.some(p => p.prior) ? '<span class="pill">yes</span>' : ""}</td><td>${repCell(x.best)}</td><td>${atacCell(x.best)}</td></tr>`).join("") || '<tr><td colspan="8" class="muted">No passing partners in this run</td></tr>'}</table></div></div>
    <div class="card"><h2>Partner × cell-type dot plot</h2><div id="dot" class="plot"></div></div></div>
    <div class="grid"><div class="card"><h2>${esc(tf)} detection by cell context</h2><div id="bar" class="plot"></div></div><div class="card"><h2>${esc(tf)} on UMAP</h2><div id="um" class="plot"></div><div id="umn"></div></div></div>
    <div id="atacTF"></div>
@@ -205,13 +205,14 @@ async function ctPage(i) {
 }
 
 async function pairPage(arg) {
-  const [a0, b0] = arg.split(":"); const A = D.TF[(a0 || "").toUpperCase()], B = D.TF[(b0 || "").toUpperCase()];
+  const [pairArg, ctxArg] = arg.split("@"); const ctx = ctxArg === undefined || ctxArg === "" ? null : +ctxArg;
+  const [a0, b0] = pairArg.split(":"); const A = D.TF[(a0 || "").toUpperCase()], B = D.TF[(b0 || "").toUpperCase()];
   if (!A || !B) { $("#app").innerHTML = `<div class="card">Pair ${esc(arg)} isn't in this run.</div>`; return; }
   const [sa, sb] = await Promise.all([J(tfFile(A.tf)), J(tfFile(B.tf))]);
   const P = enrich(rowsOf(sa)).filter(p => (p.tf1 === A.tf && p.tf2 === B.tf) || (p.tf1 === B.tf && p.tf2 === A.tf)).sort(rank);
-  const best = P[0];
+  const best = (ctx != null && P.find(p => p.s === ctx)) || P[0];
   $("#app").innerHTML = `<div class="crumb"><a onclick="go('home')">Explore</a> › <a onclick="go('tf/${A.tf}')">${A.tf}</a> › pair</div>
-   <div class="card"><h2>${esc(A.tf)} : ${esc(B.tf)}</h2>${best ? `<div class="stats">${stat(P.length, "cell contexts with a hit")}${stat(fmt(sig(best)), "best q")}${stat(fmt(best.primary_r ?? best.r), "best r")}${stat(Math.max(...P.map(p => p.n_collections)), "max collections")}${stat(best.prior ? "yes" : "no", "literature prior")}</div>` : '<p class="muted">This pair did not pass screening in this run. The expression panels below are still real data.</p>'}
+   <div class="card"><h2>${esc(A.tf)} : ${esc(B.tf)}</h2>${best ? `<div class="stats">${stat(P.length, "cell contexts with a hit")}${stat(fmt(sig(best)), ctx != null ? "q (selected context)" : "best q")}${stat(fmt(best.primary_r ?? best.r), ctx != null ? "r (selected context)" : "best r")}${stat(Math.max(...P.map(p => p.n_collections)), "max collections")}${stat(best.prior ? "yes" : "no", "literature prior")}</div>` : '<p class="muted">This pair did not pass screening in this run. The expression panels below are still real data.</p>'}
    <h3>Evidence layers</h3><table><tr><th>Layer</th><th>Status</th><th>Evidence</th></tr>
    <tr><td>CELLxGENE discovery</td><td><span class="badge b-done">done</span></td><td>${best ? `${P.length} context(s); best ${esc(best.primary_stat)} r = ${fmt(best.primary_r)}, q = ${fmt(best.min_q)}; meta k = ${best.k_meta ?? 0}` : "no passing context"}</td></tr>
    <tr><td>Literature / physical prior</td><td><span class="badge ${best && best.prior ? "b-done" : "b-todo"}">${best && best.prior ? "recorded" : "none recorded"}</span></td><td>${best && best.prior ? `${esc(best.prior_evidence)}; ${esc(best.prior_classes)}; Pair_ID ${esc(best.pair_id || "–")}; PMIDs ${(best.pmids || "").split(" | ").filter(Boolean).slice(0, 8).map(x => `<a href="https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(x)}/" target="_blank" rel="noopener">${esc(x)}</a>`).join(" ")}` : "Not recorded in the compendium. That doesn't mean the pair doesn't interact."}</td></tr>
@@ -219,7 +220,7 @@ async function pairPage(arg) {
    ${atacRow(P)}</table></div>
    ${atacPanel(P)}<div id="atacPair"></div>
    ${repTable(P)}
-   <div class="card"><h2>All evidence rows</h2>${P.length ? pairTable(P) : '<p class="muted">none</p>'}</div>
+   <div class="card"><h2>All evidence rows</h2>${ctx != null && best && best.s === ctx ? `<p class="muted">Opened from a table row: <b>${esc(best.ct)} · ${esc(best.assay)}</b> is preselected (highlighted below and in the per-cell plots).</p>` : ""}${P.length ? pairTable(P, {hl: best ? best.s : null}) : '<p class="muted">none</p>'}</div>
    <div class="card"><h2>Detection by cell context</h2><div id="det" class="plot"></div></div>
    <div class="card"><h2>Per-cell expression</h2><div id="embsel"></div><div class="grid3"><div id="uA" class="plot"></div><div id="uB" class="plot"></div><div id="uC" class="plot"></div></div><div id="umn"></div>
    <div class="grid"><div id="vio" class="plot"></div><div id="sc" class="plot"></div></div></div>`;
@@ -414,3 +415,7 @@ async function atacCT(st, P) {
     document.getElementById("ctatac").on("plotly_click", e => go("pair/" + e.points[0].y));
   } else el.innerHTML = html + `<p class="muted">No CATlas cluster is mapped to this cell type, so no ATAC plots are shown (a coverage gap, not a negative result).</p></div>`;
 }
+
+/* clickable table rows: whole row opens the pair page (cell context preselected); inner links keep their own targets */
+document.addEventListener("click", e => { const tr = e.target.closest("tr.prow"); if (!tr || e.target.closest("a,button,input,select,th")) return; go(tr.dataset.go); });
+document.addEventListener("keydown", e => { if (e.key !== "Enter") return; const tr = e.target.closest && e.target.closest("tr.prow"); if (tr && e.target === tr) { e.preventDefault(); go(tr.dataset.go); } });

@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/img/logo.svg" alt="TFpairminer logo: two TFs bound as a bZIP-like dimer on DNA" width="420"></p>
+
 # TFpairminer
 
 Mine candidate **functional TF pairs per cell type** from single-cell atlases, and browse them on a searchable site.

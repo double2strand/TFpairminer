@@ -33,3 +33,5 @@ a.brand{color:#fff;text-decoration:none}.searchbox{position:relative;flex:1;min-
 .card{overflow-x:auto}
 .logos{display:flex;flex-wrap:wrap;gap:12px}.logo{border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px}
 .logo svg text{font-size:100px}
+tr.prow{cursor:pointer}tr.prow:hover td{background:#eef4ff}tr.prow:focus{outline:2px solid var(--acc);outline-offset:-2px}tr.prow.hl td{background:#fff1e6}.pairbtn{display:inline-block;padding:0 5px;border:1px solid #c7d2fe;border-radius:8px;font-size:11px;color:#f97316}.pairbtn:hover{background:#fff1e6;text-decoration:none}
+.brand img{display:block}
