@@ -35,3 +35,6 @@ a.brand{color:#fff;text-decoration:none}.searchbox{position:relative;flex:1;min-
 .logo svg text{font-size:100px}
 tr.prow{cursor:pointer}tr.prow:hover td{background:#eef4ff}tr.prow:focus{outline:2px solid var(--acc);outline-offset:-2px}tr.prow.hl td{background:#fff1e6}.pairbtn{display:inline-block;padding:0 5px;border:1px solid #c7d2fe;border-radius:8px;font-size:11px;color:#f97316}.pairbtn:hover{background:#fff1e6;text-decoration:none}
 .brand img{display:block}
+.summary{border-left:4px solid #2563eb}.summary ul{margin:.3em 0 .6em 1.1em;padding:0}.summary li{margin:.25em 0}
+.rate-strong{background:#15803d;color:#fff}.rate-promising{background:#2563eb;color:#fff}.rate-weak{background:#b91c1c;color:#fff}.rate-untested{background:#6b7280;color:#fff}
+details summary{cursor:pointer;color:#2563eb}

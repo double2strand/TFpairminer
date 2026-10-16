@@ -1,6 +1,6 @@
 "use strict";
 /* TF Pair Miner — results explorer. Data: data/runs/index.json + per-run sharded JSON (schema_version 2). */
-const D = {cache: {}}; const S = {sort: {k: "min_q", dir: 1}, f: {r: "", q: "", mq: "", lift: "", coll: "", prior: false, rep: false, atac: ""}};
+const D = {cache: {}}; const S = {sort: {k: "min_q", dir: 1}, f: {r: "", q: "", mq: "", lift: "", coll: "", prior: false, rep: false, atac: "", cor: ""}};
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const fmt = (v, d = 3) => v == null || v === "" ? "–" : (typeof v === "number" && !Number.isInteger(v) ? (Math.abs(v) < 1e-3 && v !== 0 ? v.toExponential(1) : v.toFixed(d)) : v);
@@ -32,7 +32,7 @@ async function boot() {
 function layerBadges(compact) {
   const L = D.run.layers || {}; const emb = D.run.embedding || {};
   const b = (st, t) => `<span class="badge ${st === "done" ? "b-done" : "b-todo"}">${esc(t)}: ${st === "done" ? "done" : "not yet run"}</span>`;
-  return `<div class="layers">${b((L.discovery_cellxgene || {}).status || "done", "CELLxGENE discovery")}${b(emb.status || "not_run", "Per-cell UMAP")}${b((L.replication || {}).status || "not_run", "Replication (SCEA / Tabula Sapiens)")}${b((L.scatac || {}).status || "not_run", (L.scatac || {}).status === "done" ? "scATAC level B (A, C, D not run)" : "scATAC evidence A–D")}</div>`;
+  return `<div class="layers">${b((L.discovery_cellxgene || {}).status || "done", "CELLxGENE discovery")}${b(emb.status || "not_run", "Per-cell UMAP")}${b((L.replication || {}).status || "not_run", "Replication (SCEA / Tabula Sapiens)")}${b((L.scatac || {}).status || "not_run", (L.scatac || {}).status === "done" ? "scATAC level B (A, C, D not run)" : "scATAC evidence A–D")}${b((L.atac_corpus || {}).status || "not_run", "Human-scATAC-Corpus")}</div>`;
 }
 const REP = {replicated_donor_supported: ["replicated", "b-rep"], cell_level_support_only: ["cell-level only", "b-cell"], not_replicated: ["not replicated", "b-no"],
   inconclusive_low_expression: ["inconclusive", "b-inc"], insufficient_cells: ["insufficient cells", "b-inc"], gene_unavailable: ["gene unavailable", "b-inc"],
@@ -77,7 +77,7 @@ async function route() {
   const h = decodeURIComponent(location.hash.slice(1) || "home"); const i = h.indexOf("/"); const m = i < 0 ? h : h.slice(0, i), arg = i < 0 ? "" : h.slice(i + 1);
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.mode === m));
   window.scrollTo(0, 0);
-  try { await ({home, table, info, about, tf: () => tfPage(arg), ct: () => ctPage(+arg), pair: () => pairPage(arg)}[m === "table" && arg === "replicated" ? (S.f.rep = true, "table") : m] || home)(); }
+  try { await ({home, table, info, about, tf: () => tfPage(arg), ct: () => ctPage(+arg), pair: () => pairPage(arg), coverage}[m === "table" && arg === "replicated" ? (S.f.rep = true, "table") : m] || home)(); }
   catch (e) { $("#app").innerHTML = `<div class="card">Error: ${esc(e.message)}</div>`; console.error(e); }
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => go(b.dataset.mode));
@@ -103,7 +103,7 @@ function network(el, P, focus) {
 }
 const COLS = [["tf1", "TF1"], ["tf2", "TF2"], ["ct", "Cell type"], ["tissue", "Tissue"], ["disease", "Disease"], ["assay", "Assay"], ["primary_stat", "Primary stat"], ["primary_r", "Primary r"], ["min_q", "q (BH)"],
   ["r", "Cell r (raw)"], ["donor_r", "Pseudobulk r"], ["lift", "Lift"], ["tf1_det", "TF1 det."], ["tf2_det", "TF2 det."], ["co_detected", "Co-det. cells"], ["n_cells", "Cells"], ["n_datasets", "Datasets"], ["n_collections", "Collections"],
-  ["k_meta", "Meta k"], ["meta_r", "Meta r"], ["meta_q", "Meta q"], ["i2", "I²"], ["prior", "Prior"], ["pair_id", "Pair_ID"], ["pmids", "PMIDs"], ["replication", "Replication"], ["atac_level", "scATAC"]];
+  ["k_meta", "Meta k"], ["meta_r", "Meta r"], ["meta_q", "Meta q"], ["i2", "I²"], ["prior", "Prior"], ["pair_id", "Pair_ID"], ["pmids", "PMIDs"], ["replication", "Replication"], ["atac_level", "scATAC"], ["atac_corpus", "Corpus ATAC"]];
 const NUM = {primary_r: 3, min_q: 3, r: 3, donor_r: 3, lift: 2, meta_r: 3, meta_q: 3, i2: 2};
 function pairTable(P, opts = {}) {
   const cols = opts.cols ? COLS.filter(c => opts.cols.includes(c[0])) : COLS;
@@ -115,7 +115,7 @@ function pairTable(P, opts = {}) {
     if (k in NUM) return `<td class="n">${fmt(v, NUM[k])}</td>`;
     if (k === "prior") return `<td>${v ? `<span class="pill" title="${esc(p.prior_evidence + " — " + p.prior_classes)}">${esc(p.prior_evidence || "yes")}</span>` : ""}</td>`;
     if (k === "pmids") { const ids = (v || "").split(" | ").filter(Boolean); return `<td>${ids.slice(0, 3).map(x => `<a href="https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(x)}/" target="_blank" rel="noopener">${esc(x)}</a>`).join(" ")}${ids.length > 3 ? ` +${ids.length - 3}` : ""}</td>`; }
-    if (k === "replication") return `<td>${repCell(p)}</td>`; if (k === "atac_level") return `<td>${atacCell(p)}</td>`;
+    if (k === "replication") return `<td>${repCell(p)}</td>`; if (k === "atac_level") return `<td>${atacCell(p)}</td>`; if (k === "atac_corpus") return `<td>${corpusCell(p)}</td>`;
     return typeof v === "number" ? `<td class="n">${v}</td>` : `<td>${esc(v)}</td>`; };
   const lim = opts.limit || 2000;
   return `<div class="tablewrap"><table><tr>${head}</tr>${P.slice(0, lim).map(p => `<tr class="prow${opts.hl != null && p.s === opts.hl ? " hl" : ""}" tabindex="0" role="link" data-go="pair/${esc(p.tf1)}:${esc(p.tf2)}@${p.s}" title="Open the ${esc(p.tf1)}:${esc(p.tf2)} pair page (${esc(p.ct)}, ${esc(p.assay)})">${cols.map(([k]) => cell(p, k)).join("")}</tr>`).join("")}</table></div>${P.length > lim ? `<p class="muted">Showing ${lim} of ${P.length}.</p>` : ""}`;
@@ -211,20 +211,20 @@ async function pairPage(arg) {
   const [sa, sb] = await Promise.all([J(tfFile(A.tf)), J(tfFile(B.tf))]);
   const P = enrich(rowsOf(sa)).filter(p => (p.tf1 === A.tf && p.tf2 === B.tf) || (p.tf1 === B.tf && p.tf2 === A.tf)).sort(rank);
   const best = (ctx != null && P.find(p => p.s === ctx)) || P[0];
-  $("#app").innerHTML = `<div class="crumb"><a onclick="go('home')">Explore</a> › <a onclick="go('tf/${A.tf}')">${A.tf}</a> › pair</div>
+  $("#app").innerHTML = `<div class="crumb"><a onclick="go('home')">Explore</a> › <a onclick="go('tf/${A.tf}')">${A.tf}</a> › pair</div><div id="summary"></div>
    <div class="card"><h2>${esc(A.tf)} : ${esc(B.tf)}</h2>${best ? `<div class="stats">${stat(P.length, "cell contexts with a hit")}${stat(fmt(sig(best)), ctx != null ? "q (selected context)" : "best q")}${stat(fmt(best.primary_r ?? best.r), ctx != null ? "r (selected context)" : "best r")}${stat(Math.max(...P.map(p => p.n_collections)), "max collections")}${stat(best.prior ? "yes" : "no", "literature prior")}</div>` : '<p class="muted">This pair did not pass screening in this run. The expression panels below are still real data.</p>'}
    <h3>Evidence layers</h3><table><tr><th>Layer</th><th>Status</th><th>Evidence</th></tr>
    <tr><td>CELLxGENE discovery</td><td><span class="badge b-done">done</span></td><td>${best ? `${P.length} context(s); best ${esc(best.primary_stat)} r = ${fmt(best.primary_r)}, q = ${fmt(best.min_q)}; meta k = ${best.k_meta ?? 0}` : "no passing context"}</td></tr>
    <tr><td>Literature / physical prior</td><td><span class="badge ${best && best.prior ? "b-done" : "b-todo"}">${best && best.prior ? "recorded" : "none recorded"}</span></td><td>${best && best.prior ? `${esc(best.prior_evidence)}; ${esc(best.prior_classes)}; Pair_ID ${esc(best.pair_id || "–")}; PMIDs ${(best.pmids || "").split(" | ").filter(Boolean).slice(0, 8).map(x => `<a href="https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(x)}/" target="_blank" rel="noopener">${esc(x)}</a>`).join(" ")}` : "Not recorded in the compendium. That doesn't mean the pair doesn't interact."}</td></tr>
    ${repRow(P)}
-   ${atacRow(P)}</table></div>
-   ${atacPanel(P)}<div id="atacPair"></div>
+   ${atacRow(P)}${corpusRow(P)}</table></div>
+   ${atacPanel(P)}${corpusPanel(P)}<div id="atacPair"></div>
    ${repTable(P)}
    <div class="card"><h2>All evidence rows</h2>${ctx != null && best && best.s === ctx ? `<p class="muted">Opened from a table row: <b>${esc(best.ct)} · ${esc(best.assay)}</b> is preselected (highlighted below and in the per-cell plots).</p>` : ""}${P.length ? pairTable(P, {hl: best ? best.s : null}) : '<p class="muted">none</p>'}</div>
    <div class="card"><h2>Detection by cell context</h2><div id="det" class="plot"></div></div>
    <div class="card"><h2>Per-cell expression</h2><div id="embsel"></div><div class="grid3"><div id="uA" class="plot"></div><div id="uB" class="plot"></div><div id="uC" class="plot"></div></div><div id="umn"></div>
    <div class="grid"><div id="vio" class="plot"></div><div id="sc" class="plot"></div></div></div>`;
-  atacPair(A.tf, B.tf, P).catch(console.error);
+  atacPair(A.tf, B.tf, P).catch(console.error); pairSummary(A.tf, B.tf, P).catch(console.error); corpusPlots(P);
   const pa = new Map(sa.profile.map(r => [r[0], r[1]])), pb = new Map(sb.profile.map(r => [r[0], r[1]]));
   const ss = [...new Set([...pa.keys(), ...pb.keys()])].sort((x, y) => ((pa.get(y) || 0) + (pb.get(y) || 0)) - ((pa.get(x) || 0) + (pb.get(x) || 0))).slice(0, 30);
   const hit = new Set(P.map(p => p.s)); const yl = ss.map(s => (hit.has(s) ? "★ " : "") + short(D.ST[s]));
@@ -296,14 +296,14 @@ function bindSort(P, fn, arg) { document.querySelectorAll("th[data-k]").forEach(
 async function table() {
   const f = S.f;
   const P = sortBy(D.TOP.filter(p => (f.r === "" || (p.primary_r ?? p.r) >= +f.r) && (f.q === "" || (p.min_q != null && p.min_q <= +f.q)) && (f.mq === "" || (p.meta_q != null && p.meta_q <= +f.mq))
-    && (f.lift === "" || p.lift >= +f.lift) && (f.coll === "" || p.n_collections >= +f.coll) && (!f.prior || p.prior) && (!f.rep || isRep(p)) && atacOk(p, f.atac)), S.sort.k, S.sort.dir);
+    && (f.lift === "" || p.lift >= +f.lift) && (f.coll === "" || p.n_collections >= +f.coll) && (!f.prior || p.prior) && (!f.rep || isRep(p)) && atacOk(p, f.atac) && corpusOk(p, f.cor)), S.sort.k, S.sort.dir);
   const rc = D.run.summary.run_config, m = D.run.manifest;
   $("#app").innerHTML = `<div class="card"><h2>Scientific table</h2><p class="muted">Top ${D.TOP.length} of ${D.top.total} rows. <a href="${base()}${esc(D.run.downloads["cell_type_pair_candidates.tsv"])}" download>Download the full TSV</a>.</p><div class="filters">
    <label>Min primary r<input id="fr" type="number" step="0.05" value="${f.r}"></label><label>Max q<input id="fq" type="number" step="0.01" value="${f.q}"></label><label>Max meta q<input id="fmq" type="number" step="0.01" value="${f.mq}"></label>
-   <label>Min lift<input id="fl" type="number" step="0.1" value="${f.lift}"></label><label>Min collections<input id="fc" type="number" min="1" value="${f.coll}"></label><label><span>Prior only</span><input id="fp" type="checkbox" ${f.prior ? "checked" : ""} style="width:auto"></label><label><span>Replicated only</span><input id="frep" type="checkbox" ${f.rep ? "checked" : ""} ${repLayerDone() ? "" : "disabled"} style="width:auto"></label><label>ATAC (level B)<select id="fatac" ${atacDone() ? "" : "disabled"}>${[["", "any"], ["tested", "tested (adult)"], ["catlas_coenriched", "co-enriched (adult)"], ["gap", "no CATlas match"], ["proxy", "fetal proxy tested"], ["proxy_coenriched", "fetal proxy co-enriched"], ["proxy_not_coenriched", "fetal proxy not co-enriched"]].map(([v, l]) => `<option value="${v}" ${f.atac === v ? "selected" : ""}>${l}</option>`).join("")}</select></label><span class="muted">${P.length} rows</span></div>
+   <label>Min lift<input id="fl" type="number" step="0.1" value="${f.lift}"></label><label>Min collections<input id="fc" type="number" min="1" value="${f.coll}"></label><label><span>Prior only</span><input id="fp" type="checkbox" ${f.prior ? "checked" : ""} style="width:auto"></label><label><span>Replicated only</span><input id="frep" type="checkbox" ${f.rep ? "checked" : ""} ${repLayerDone() ? "" : "disabled"} style="width:auto"></label><label>ATAC (level B)<select id="fatac" ${atacDone() ? "" : "disabled"}>${[["", "any"], ["tested", "tested (adult)"], ["catlas_coenriched", "co-enriched (adult)"], ["gap", "no CATlas match"], ["proxy", "fetal proxy tested"], ["proxy_coenriched", "fetal proxy co-enriched"], ["proxy_not_coenriched", "fetal proxy not co-enriched"]].map(([v, l]) => `<option value="${v}" ${f.atac === v ? "selected" : ""}>${l}</option>`).join("")}</select></label><label>Corpus ATAC<select id="fcor" ${corDone() ? "" : "disabled"}>${[["", "any"], ["tested", "tested"], ["co-enriched", "co-enriched"], ["not", "not co-enriched"], ["no_matched_test", "no matched ATAC test"], ["none", "not sent"]].map(([v, l]) => `<option value="${v}" ${f.cor === v ? "selected" : ""}>${l}</option>`).join("")}</select></label><span class="muted">${P.length} rows</span></div>
    <p class="muted">Primary statistic <b>${esc(rc.primary_stat || "cell_raw")}</b>; detection ≥ ${rc.min_detection}; r ≥ ${rc.min_rho}; ${rc.primary_stat && rc.primary_stat !== "cell_raw" ? `BH q ≤ ${rc.max_q}; ` : ""}lift ≥ ${rc.min_lift}; co-detected ≥ ${rc.min_codetected}; min cells ${rc.min_cells}. Census ${esc(m.resolved_census_version)}.</p>${pairTable(P)}</div>`;
-  const upd = () => { S.f = {r: $("#fr").value, q: $("#fq").value, mq: $("#fmq").value, lift: $("#fl").value, coll: $("#fc").value, prior: $("#fp").checked, rep: $("#frep").checked, atac: $("#fatac").value}; table(); };
-  ["#fr", "#fq", "#fmq", "#fl", "#fc", "#fp", "#frep", "#fatac"].forEach(s => $(s).addEventListener("change", upd)); bindSort();
+  const upd = () => { S.f = {r: $("#fr").value, q: $("#fq").value, mq: $("#fmq").value, lift: $("#fl").value, coll: $("#fc").value, prior: $("#fp").checked, rep: $("#frep").checked, atac: $("#fatac").value, cor: $("#fcor").value}; table(); };
+  ["#fr", "#fq", "#fmq", "#fl", "#fc", "#fp", "#frep", "#fatac", "#fcor"].forEach(s => $(s).addEventListener("change", upd)); bindSort();
 }
 
 function info() {
@@ -419,3 +419,105 @@ async function atacCT(st, P) {
 /* clickable table rows: whole row opens the pair page (cell context preselected); inner links keep their own targets */
 document.addEventListener("click", e => { const tr = e.target.closest("tr.prow"); if (!tr || e.target.closest("a,button,input,select,th")) return; go(tr.dataset.go); });
 document.addEventListener("keydown", e => { if (e.key !== "Enter") return; const tr = e.target.closest && e.target.closest("tr.prow"); if (tr && e.target === tr) { e.preventDefault(); go(tr.dataset.go); } });
+
+/* ---------- Human-scATAC-Corpus layer (kept separate from CATlas) ---------- */
+const CORC = {corpus_coenriched_independent_source: "b-rep", corpus_coenriched_shared_catlas_source: "b-cell", not_coenriched: "b-no", proxy_coenriched: "b-proxy", proxy_not_coenriched: "b-proxyno", no_matched_test: "b-todo", not_tested: "b-todo"};
+const corDone = () => ((D.run.layers || {}).atac_corpus || {}).status === "done";
+const corBadge = (st, l, tip) => `<span class="badge ${CORC[st] || "b-inc"}" title="${esc(tip || st)}">${esc(l || st)}</span>`;
+const corKey = p => { const c = p.atac_corpus; if (!c) return "none"; if (c.status.startsWith("corpus_coenriched") || c.status === "proxy_coenriched") return "co-enriched"; if (c.status.includes("not_coenriched")) return "not"; return c.status; };
+const corpusCell = p => { const c = p.atac_corpus; if (c == null) return `<span class="badge b-todo">${corDone() ? "not tested" : "not yet run"}</span>`;
+  return corBadge(c.status, c.label, c.reason || c.summary) + (c.catlas_source_overlap ? ` <span class="badge b-inc" title="Corpus samples for this tissue come from CATlas source studies (Zhang2021/Domcke2020); not independent of CATlas">CATlas-source overlap</span>` : ""); };
+const corpusOk = (p, v) => !v || (v === "tested" ? ["co-enriched", "not"].includes(corKey(p)) : corKey(p) === v);
+function corpusRow(P) {
+  if (!corDone()) return "";
+  const R = P.filter(p => p.atac_corpus && p.atac_corpus.status !== "not_tested"), c = R[0] && R[0].atac_corpus;
+  return `<tr><td>scATAC: Human-scATAC-Corpus <span class="muted">(separate from CATlas)</span></td><td>${c ? corpusCell(R[0]) : '<span class="badge b-todo">not tested</span>'}</td><td>${c ? esc(c.reason || `${c.n_tested_samples} sample(s) tested; ${c.n_independent_supporting_datasets} independent supporting dataset(s)`) : "Only Tabula Sapiens-replicated rows are sent to the corpus"}</td></tr>`;
+}
+function corpusPanel(P) {
+  const L = (D.run.layers || {}).atac_corpus || {}; if (L.status !== "done") return "";
+  const R = P.filter(p => p.atac_corpus && p.atac_corpus.status !== "not_tested");
+  const tis = new Set(P.map(p => p.st.tissue)); const recs = (L.recommendations || []).filter(r => tis.has(r.tissue));
+  const sm = Object.fromEntries((L.samples || []).map(s => [s.sample_id, s]));
+  const ids = [...new Set([...recs.map(r => r.sample_id), ...R.flatMap(p => p.atac_corpus.results.map(x => x.sample_id))])];
+  const res = R.flatMap(p => p.atac_corpus.results.map(x => ({...x, ctx: `${p.ct} · ${p.assay}`})));
+  const st = x => x == null ? "–" : fmt(x);
+  const samp = ids.map(id => { const s = sm[id], r = recs.find(x => x.sample_id === id) || {};
+    return `<tr><td>${esc(id)}</td><td>${esc((s || r).dataset || "")}</td><td>${esc((s && s.tissue) || r.corpus_tissue || "")}</td><td>${esc(s ? s.stage : "–")}</td><td class="n">${esc((s && s.n_cells) || r.n_cells_catalog || "–")}</td><td>${s ? '<span class="badge b-done">indexed</span>' : '<span class="badge b-todo">not fetched / indexed</span>'}</td><td>${((s || r).overlaps_catlas_source) === "Yes" ? '<span class="badge b-inc">yes – CATlas source study</span>' : "no"}</td><td class="muted" style="font-size:11px">${s ? s.labels.map(([l, n]) => `${esc(l)} (${n})`).join(", ") : "labels unknown until indexed"}</td></tr>`; }).join("");
+  const why = [...new Set(R.map(p => p.atac_corpus.reason).filter(Boolean))];
+  return `<div class="card" id="corpus"><h2>scATAC: Human-scATAC-Corpus <span class="muted">(${esc(L.reference || "")})</span></h2>
+   <p class="caveat"><b>Caveat.</b> ${esc(L.caveat || "")}</p>
+   <h3>Candidate corpus samples for ${esc([...tis].join(", "))}</h3>
+   ${ids.length ? `<table><tr><th>Sample</th><th>Study</th><th>Tissue</th><th>Age / stage</th><th>Cells</th><th>Status</th><th>CATlas-source overlap</th><th>Cell labels (cells)</th></tr>${samp}</table>` : '<p class="muted">No corpus sample for this tissue.</p>'}
+   ${why.length ? `<h3>Why there is no matched test</h3>${why.map(w => `<p>${esc(w)}</p>`).join("")}` : ""}
+   <h3>RNA cell type → corpus label mapping (reviewed crosswalk required)</h3>
+   <table><tr><th>RNA cell type</th><th>Tissue</th><th>Suggested corpus labels</th><th>Reviewed mapping</th></tr>${(L.mapping_review || []).filter(r => tis.has(r.tissue)).map(r => `<tr><td>${esc(r.cell_type)} <span class="muted">${esc(r.cell_type_id)}</span></td><td>${esc(r.tissue)}</td><td>${esc(r.suggested_sample_labels || "none")}</td><td>${res.some(x => x.mapping_status === "mapped") ? "yes" : '<span class="badge b-todo">none</span>'}</td></tr>`).join("")}</table>
+   ${res.some(x => x.joint_odds_ratio != null) ? `<h3>Enrichment (accessible vs matched inaccessible corpus cCREs)</h3><table><tr><th>Context</th><th>Sample</th><th>Corpus cell type</th><th>Tier</th><th>Result</th><th>fg / bg</th><th>Joint fg/bg · OR · q</th><th>CATlas source?</th></tr>${res.map(x => `<tr><td>${esc(x.ctx)}</td><td>${esc(x.sample_id)} ${esc(x.dataset)}</td><td>${esc(x.hsc_cell_type)} (${x.hsc_n_cells ?? "–"})</td><td>${tierBadge(x.tier)}</td><td>${corBadge(x.result, x.label)}</td><td class="n">${x.n_matched_foreground ?? "–"} / ${x.n_matched_background ?? "–"}</td><td class="n">${x.joint_fg_hits ?? "–"}/${x.joint_bg_hits ?? "–"} · OR ${st(x.joint_odds_ratio)} · q ${st(x.joint_q)}</td><td>${esc(x.overlaps_catlas_source)}</td></tr>`).join("")}</table>
+     <div class="grid"><div><h3>Motif hits: accessible vs inaccessible</h3><div id="cx1" class="plot"></div></div><div><h3>Joint odds ratio per sample × cell type</h3><div id="cx2" class="plot"></div></div></div>` : ""}
+   <h3>CATlas vs Corpus, side by side (separate resources; neither selects pairs)</h3>${compareTable(P, sm)}</div>`;
+}
+function compareTable(P, sm) {
+  const rows = [];
+  P.filter(p => p.atac_level || p.atac_corpus).forEach(p => { const a = p.atac_level || {}, c = p.atac_corpus || {};
+    (a.exact || []).forEach(m => rows.push(["CATlas (adult/exact)", p, m.cluster || "none", m.stage || "–", atacBadge(m.result, m.label), "—"]));
+    (a.proxy_fetal || []).forEach(m => rows.push(["CATlas (fetal proxy)", p, m.cluster, m.stage, atacBadge(m.result, m.label), "—"]));
+    if (p.atac_corpus) { const xs = (c.results || []).filter(x => x.mapping_status === "mapped");
+      if (xs.length) xs.forEach(x => rows.push(["Human-scATAC-Corpus", p, `${x.sample_id} ${x.hsc_cell_type}`, x.stage, corBadge(x.result, x.label), x.overlaps_catlas_source === "Yes" ? '<span class="badge b-inc">shared CATlas source</span>' : "independent"]));
+      else rows.push(["Human-scATAC-Corpus", p, "no reviewed match", "–", corBadge(c.status, c.label, c.reason), c.catlas_source_overlap ? '<span class="badge b-inc">candidate samples are CATlas sources</span>' : "–"]); } });
+  if (!rows.length) return '<p class="muted">Neither resource tested this pair (not Tabula Sapiens-replicated).</p>';
+  return `<table><tr><th>Resource</th><th>Discovery context</th><th>Matched ATAC group</th><th>Stage</th><th>Result</th><th>Independence</th></tr>${rows.map(([r, p, g, s, b, o]) => `<tr><td>${r}</td><td>${esc(p.ct)} · ${esc(p.assay)}</td><td>${esc(g)}</td><td>${esc(s)}</td><td>${b}</td><td>${o}</td></tr>`).join("")}</table>`;
+}
+function corpusPlots(P) {
+  const res = P.flatMap(p => (p.atac_corpus && p.atac_corpus.results || []).filter(x => x.joint_odds_ratio != null)); if (!res.length || !$("#cx1")) return;
+  const x = res[0], n1 = x.n_matched_foreground, n2 = x.n_matched_background, xl = ["TF A", "TF B", "joint"];
+  Plotly.newPlot("cx1", [{type: "bar", name: `accessible (${x.sample_id} ${x.hsc_cell_type})`, x: xl, y: [x.tf1_fg_hits, x.tf2_fg_hits, x.joint_fg_hits].map(v => 100 * v / n1), marker: {color: "#dc2626"}},
+    {type: "bar", name: "matched inaccessible", x: xl, y: [x.tf1_bg_hits, x.tf2_bg_hits, x.joint_bg_hits].map(v => 100 * v / n2), marker: {color: "#94a3b8"}}], {barmode: "group", height: 300, yaxis: {title: "% cCREs with motif"}, legend: {orientation: "h"}, margin: {l: 50, r: 10, t: 10, b: 40}}, PL);
+  Plotly.newPlot("cx2", [{type: "scatter", mode: "markers", x: res.map(r => r.joint_odds_ratio), y: res.map(r => `${r.sample_id} · ${r.hsc_cell_type}`), marker: {size: res.map(r => 6 + Math.min(16, -Math.log10(Math.max(r.joint_q || 1, 1e-300)) / 3)), color: res.map(r => r.overlaps_catlas_source === "Yes" ? "#f97316" : "#2563eb")}, text: res.map(r => `q ${fmt(r.joint_q)}`)}],
+    {height: 80 + 24 * res.length, xaxis: {title: "joint odds ratio", type: "log"}, yaxis: {automargin: true}, margin: {l: 200, r: 10, t: 10, b: 40}}, PL);
+}
+
+/* ---------- plain-language pair summary (rule-based, from the data only) ---------- */
+function rateRules(P, sim) {
+  const R = P.filter(p => p.replication), rep = P.filter(isRep);
+  const ex = P.flatMap(p => (p.atac_level && p.atac_level.exact || [])).filter(m => ["catlas_coenriched", "not_coenriched"].includes(m.result));
+  const px = P.flatMap(p => (p.atac_level && p.atac_level.proxy_fetal || []));
+  const co = P.flatMap(p => (p.atac_corpus && p.atac_corpus.results || [])).filter(x => x.tier === "exact_reviewed" && /coenriched/.test(x.result));
+  const amb = sim != null && sim >= 0.8;
+  const adultPos = !amb && (ex.some(m => m.result === "catlas_coenriched") || co.some(x => x.result.startsWith("corpus_coenriched")));
+  const adultNeg = !amb && (ex.length || co.length) && !adultPos;
+  let rating = "Untested", why;
+  if (!R.length) why = "No discovery context of this pair was sent to the Tabula Sapiens replication check.";
+  else if (!rep.length) { rating = "Weak"; why = "It was checked in Tabula Sapiens but did not replicate."; }
+  else if (adultPos) { rating = "Strong"; why = "It replicated in Tabula Sapiens and an adult-matched ATAC test shows the two motifs together more than expected, with motifs distinct enough to tell apart."; }
+  else if (adultNeg) { rating = "Weak"; why = "It replicated in Tabula Sapiens, but an adult-matched ATAC test with distinguishable motifs found no co-enrichment."; }
+  else { rating = "Promising"; why = "It replicated in Tabula Sapiens; no adult-matched ATAC test could confirm or contradict it" + (amb ? " (and the two motifs are too similar for ATAC to separate)" : px.some(m => m.result === "proxy_coenriched") ? " (a fetal stand-in supports it, which is a hint, not proof)" : "") + "."; }
+  return {rating, why, R, rep, ex, px, amb};
+}
+async function pairSummary(A, B, P) {
+  const el = $("#summary"); if (!el || !P.length) { if (el) el.innerHTML = ""; return; }
+  const d = await atacPairFile(A, B).catch(() => null); const sim = d && d.motif_similarity_max != null ? +d.motif_similarity_max : null;
+  const {rating, why, R, rep, ex, px, amb} = rateRules(P, sim); const best = P[0];
+  const q = sig(best), r = best.primary_r ?? best.r, ncol = Math.max(...P.map(p => p.n_collections));
+  const disc = q <= 1e-3 && ncol >= 2 ? "strong" : q <= 0.05 ? "moderate" : "weak";
+  const L = [];
+  L.push(`<b>Discovery:</b> ${A} and ${B} are switched on together more than chance in <b>${P.length}</b> cell context${P.length > 1 ? "s" : ""} (best: ${esc(best.ct)}, r = ${fmt(r)}, q = ${fmt(q)}; seen in up to ${ncol} collection${ncol > 1 ? "s" : ""}). Signal: <b>${disc}</b>.`);
+  L.push(`<b>Literature:</b> ${best.prior || P.some(p => p.prior) ? "a known interaction is recorded in the compendium." : "no interaction recorded in the compendium (that is not evidence against it)."}`);
+  L.push(`<b>Tabula Sapiens (independent donors):</b> ${!R.length ? "not checked." : rep.length ? `replicated in ${rep.length} of ${R.length} context(s) checked.` : `checked in ${R.length} context(s), not replicated.`}`);
+  const pxs = px.filter(m => m.result && m.result.startsWith("proxy_"));
+  L.push(`<b>CATlas chromatin:</b> ${ex.length ? (ex.some(m => m.result === "catlas_coenriched") ? "adult match: the two motifs sit together in open chromatin more than expected." : "adult match: no co-enrichment.") : "no adult CATlas cell type matches."}${pxs.length ? ` Fetal stand-in (${esc(pxs[0].cluster)}): ${pxs.some(m => m.result === "proxy_coenriched") ? `co-enriched (odds ratio ${fmt(pxs[0].joint_odds_ratio)})` : "not co-enriched"} – a hint only.` : ""}${sim != null ? ` Motif similarity ${fmt(sim)}: ${amb ? "<b>the two motifs look almost the same, so ATAC cannot tell their sites apart</b>." : "distinct enough to tell apart."}` : ""}`);
+  const c = (P.find(p => p.atac_corpus && p.atac_corpus.status !== "not_tested") || {}).atac_corpus;
+  L.push(`<b>Human-scATAC-Corpus:</b> ${!c ? "not tested." : c.status === "no_matched_test" ? "no matching cell type in the available samples, so no test (not a negative)." : `${esc(c.label)}${c.catlas_source_overlap ? " (samples share source studies with CATlas, so not independent)" : ""}.`}`);
+  const mean = {Strong: "Good candidate: independent RNA and chromatin evidence agree.", Promising: "Worth following up: the RNA pattern holds in new donors, but chromatin evidence is missing, indirect or ambiguous.", Weak: "Treat with caution: a follow-up check did not support it.", Untested: "Only the discovery screen supports this so far."}[rating];
+  el.innerHTML = `<div class="card summary"><h2>Summary <span class="badge rate-${rating.toLowerCase()}">${rating}</span></h2><ul>${L.map(x => `<li>${x}</li>`).join("")}</ul>
+   <p><b>What it means:</b> ${mean} ${esc(why)}</p>
+   <details><summary>How this is decided</summary><ol><li><b>Untested</b>: no context of the pair was sent to Tabula Sapiens replication.</li><li><b>Weak</b>: checked in Tabula Sapiens but not replicated; or replicated but an adult-matched ATAC test (CATlas exact or Corpus exact_reviewed) with distinguishable motifs (similarity &lt; 0.8) shows no co-enrichment.</li><li><b>Strong</b>: replicated, and an adult-matched ATAC test with distinguishable motifs shows co-enrichment.</li><li><b>Promising</b>: replicated, with no adult-matched ATAC verdict (no match, fetal/proxy only, or motifs too similar, ≥ 0.8).</li></ol><p class="muted">Fetal or other proxy results never raise the rating. Discovery signal: strong = q ≤ 0.001 and ≥ 2 collections; moderate = q ≤ 0.05. Text is filled in from this run's data by fixed templates.</p></details></div>`;
+}
+
+async function coverage() {
+  const C = D.run.coverage || []; const L = D.run.layers || {};
+  const cs = {exact: ["adult match", "b-rep"], fetal_only: ["fetal only", "b-proxy"], none: ["no match", "b-no"], not_checked: ["not checked", "b-todo"]};
+  const os = {mapped: ["matched label", "b-rep"], indexed_no_match: ["indexed, no matching label", "b-no"], samples_available: ["samples available, not indexed", "b-inc"], no_samples: ["no samples", "b-todo"]};
+  const bd = (m, k) => `<span class="badge ${(m[k] || [k, "b-todo"])[1]}">${esc((m[k] || [k])[0])}</span>`;
+  $("#app").innerHTML = `<div class="card"><h2>ATAC coverage by RNA context</h2><p class="muted">Which RNA discovery contexts have a matching chromatin (scATAC) group in each resource. CATlas and the Human-scATAC-Corpus are shown separately; corpus samples from Zhang2021/Domcke2020 are CATlas source studies and not independent.</p>
+   ${C.length ? `<table><tr><th>RNA context</th><th>Rows</th><th>TS-replicated</th><th>CATlas</th><th>CATlas detail</th><th>Corpus</th><th>Corpus samples</th></tr>${C.map(c => { const st = D.ST[c.s]; return `<tr class="prow" data-go="ct/${c.s}"><td>${esc(short(st))}</td><td class="n">${c.n_rows}</td><td class="n">${c.n_replicated}</td><td>${bd(cs, c.catlas.status)}</td><td class="muted">${esc(c.catlas.exact || "")}${c.catlas.proxy ? "proxy: " + esc(c.catlas.proxy) : ""}</td><td>${bd(os, c.corpus.status)}</td><td>${c.corpus.samples.map(s => `${esc(s.sample_id)} ${esc(s.dataset)} ${s.indexed ? '<span class="badge b-done">indexed</span>' : '<span class="badge b-todo">not indexed</span>'}${s.overlaps_catlas_source === "Yes" ? ' <span class="badge b-inc">CATlas source</span>' : ""}`).join("<br>")}</td></tr>`; }).join("")}</table>` : '<p class="muted">No coverage data in this run.</p>'}
+   <p class="muted">CATlas: ${esc((L.scatac || {}).status || "not run")}; Corpus: ${esc((L.atac_corpus || {}).status || "not run")}.</p></div>`;
+}

@@ -28,6 +28,9 @@ Usage:
   tfpm atac --runner wr|local [--run DIR] [--proxy-fetal "Fetal Cholangiocyte=CL:0002538@UBERON:0002107"]
                                         CATlas same-cCRE motif co-enrichment for replicated pairs (needs TFPM_GENOME_FASTA,
                                         fimo, bedtools when any cluster maps; proxy runs are labelled proxy_fetal)
+  tfpm corpus --runner wr|local [--run DIR] [--sample-id N ...|--fetch-recommended] [--crosswalk reviewed.tsv]
+                                        Human-scATAC-Corpus motif/accessibility layer for replicated pairs (RNA-first;
+                                        CATlas never selects pairs); scans only when a reviewed mapping exists
   tfpm aggregate                        (run automatically by mine; re-aggregates safely)
 Output dir: $OUT   Census: $CENSUS   Shards: $SHARDS
 U
@@ -116,6 +119,10 @@ cmd_status(){
     echo "ATAC $(basename "$d"): scan $(ls "$d"/scan/*.done.json 2>/dev/null | wc -l)/$(wc -l < "$d/scan_jobs.txt" 2>/dev/null || echo 0), analyze $(ls "$d"/analysis/*.done.json 2>/dev/null | wc -l)/$(wc -l < "$d/analyze_jobs.txt" 2>/dev/null || echo 0)"
     command -v wr >/dev/null && wr manager status >/dev/null 2>&1 && for g in scan compile analyze aggregate; do wr status -i tfpm-atac-$g -o s 2>/dev/null; done || true
     [ -f "$d/aggregate/summary.json" ] && cat "$d/aggregate/summary.json"; done
+  if [ -f "$OUT/atac_corpus/manifest.json" ]; then d="$OUT/atac_corpus"
+    echo "Corpus: mapped rows $(jq -r .n_mapped_rows "$d/manifest.json" 2>/dev/null), scan $(ls "$d"/scan/*.done.json 2>/dev/null | wc -l)/$(wc -l < "$d/scan_jobs.txt" 2>/dev/null || echo 0), analyze $(ls "$d"/analysis/*.done.json 2>/dev/null | wc -l)/$(wc -l < "$d/analyze_jobs.txt" 2>/dev/null || echo 0)"
+    command -v wr >/dev/null && wr manager status >/dev/null 2>&1 && for g in scan compile analyze aggregate; do wr status -i tfpm-corpus-$g -o s 2>/dev/null; done || true
+    [ -f "$d/aggregate/summary.json" ] && cat "$d/aggregate/summary.json"; fi
   return 0
 }
 
@@ -233,7 +240,62 @@ cmd_atac(){
   fi
 }
 
+# ---- Human-scATAC-Corpus layer (mining/human_scatac_corpus_integration; RNA-first, never filtered by CATlas) ----
+cmd_corpus(){
+  local run="$OUT" runner="" par=4 nscan="${TFPM_CORPUS_SCAN_SHARDS:-32}" nana="${TFPM_CORPUS_ANALYZE_SHARDS:-16}" sids=() cw="" fetch_rec=""
+  while [ $# -gt 0 ]; do case "$1" in
+    --run) run="$(readlink -m "$2")"; shift 2;; --runner) runner="$2"; shift 2;; --parallel|-P) par="$2"; shift 2;;
+    --scan-shards) nscan="$2"; shift 2;; --analyze-shards) nana="$2"; shift 2;;
+    --sample-id) sids+=("$2"); shift 2;;            # corpus samples to fetch + index (repeatable)
+    --fetch-recommended) fetch_rec=1; shift;;       # fetch every recommended sample (check sizes first!)
+    --crosswalk) cw="$(readlink -m "$2")"; shift 2;; # reviewed RNA->corpus label crosswalk (exact_reviewed / labelled proxy_* tiers)
+    *) die "unknown option $1";; esac; done
+  [ "$runner" = wr ] || [ "$runner" = local ] || die "use --runner wr or --runner local"
+  local rep="${TFPM_REP_OUT:-$run/replication_ts}" in="${TFPM_CORPUS_INPUTS:-$(dirname "$run")/corpus_inputs}" out="$run/atac_corpus"
+  local cs="$rep/aggregate/candidate_summary.tsv.gz"; [ -f "$cs" ] || die "no replication summary at $cs (run tfpm replicate first)"
+  local meme="${TFPM_CATLAS_INPUTS:-$(dirname "$run")/catlas_inputs}/jaspar2026_core_vertebrates.meme"; [ -f "$meme" ] || meme="${TFPM_JASPAR_MEME:-}"
+  [ -f "$meme" ] || die "need the JASPAR 2026 MEME file (tfpm atac fetches it; or set TFPM_JASPAR_MEME)"
+  local CP=(env -C "$ROOT/mining" "$PY" -m human_scatac_corpus_integration.pipeline)
+  mkdir -p "$in/samples"
+  [ -f "$in/catalog.tsv" ] || "${CP[@]}" catalog --out "$in/catalog.tsv" || die "catalog failed"
+  "${CP[@]}" recommend --candidate-summary "$cs" --catalog "$in/catalog.tsv" --out "$in/sample_recommendations.tsv" >/dev/null
+  if [ -n "$fetch_rec" ]; then while IFS=$'\t' read -r _ _ _ sid _; do sids+=("$sid"); done < <(tail -n +2 "$in/sample_recommendations.tsv"); fi
+  for sid in "${sids[@]}"; do [ -f "$in/samples/$sid.h5ad" ] || "${CP[@]}" fetch --catalog "$in/catalog.tsv" --sample-id "$sid" --out "$in/samples" || die "fetch $sid failed"; done
+  if ls "$in"/samples/*.h5ad >/dev/null 2>&1; then "${CP[@]}" index --catalog "$in/catalog.tsv" --data-dir "$in/samples" --out "$in/celltypes.tsv" >/dev/null || die "index failed"; fi
+  [ -f "$in/celltypes.tsv" ] || die "no indexed corpus samples: pass --sample-id N (see $in/sample_recommendations.tsv)"
+  if [ ! -f "$out/manifest.json" ]; then
+    "${CP[@]}" plan --candidate-summary "$cs" --index "$in/celltypes.tsv" --meme "$meme" --out "$out" ${cw:+--crosswalk "$cw"} >/dev/null || die "plan failed"
+  fi
+  cp "$in/sample_recommendations.tsv" "$in/celltypes.tsv" "$out/" 2>/dev/null || true
+  local mapped; mapped=$("$PY" -c "import json;print(json.load(open('$out/manifest.json'))['n_mapped_rows'])")
+  local cat="$run/atac_catlas/aggregate/catlas_pair_results.tsv.gz"
+  local combine="${CP[*]} combine --candidate-summary $cs --corpus-summary $out/aggregate/candidate_summary.tsv $( [ -f "$cat" ] && echo "--catlas-results $cat") --out $out/combined_rna_atac_evidence.tsv"
+  local agg="[ -f $out/aggregate/summary.json ] || ${CP[*]} aggregate --out $out"
+  mkdir -p "$out/logs"
+  if [ "$mapped" = 0 ]; then
+    echo "No reviewed corpus cell-type mapping for these RNA contexts (see $out/mapping_review.tsv); recording 'no matched ATAC test' (not negative)."
+    bash -c "$agg && $combine" >/dev/null; cat "$out/aggregate/summary.json"; return
+  fi
+  local fasta="${TFPM_GENOME_FASTA:-}"; [ -f "$fasta" ] || die "$mapped mapped rows need scanning: set TFPM_GENOME_FASTA"
+  : > "$out/scan_jobs.txt"; : > "$out/analyze_jobs.txt"
+  for ((i=0;i<nscan;i++)); do echo "${CP[*]} scan --out $out --data-dir $in/samples --genome-fasta $fasta --fimo ${TFPM_FIMO:-fimo} --bedtools ${TFPM_BEDTOOLS:-bedtools} --num-shards $nscan --shard-index $i --tmpdir \"\${TMPDIR:-/tmp}\"" >> "$out/scan_jobs.txt"; done
+  for ((i=0;i<nana;i++)); do echo "${CP[*]} analyze --out $out --data-dir $in/samples --num-shards $nana --shard-index $i" >> "$out/analyze_jobs.txt"; done
+  local compile="[ -f $out/compiled/hits.npy ] || ${CP[*]} compile --out $out"
+  if [ "$runner" = wr ]; then
+    command -v wr >/dev/null || die "wr not on PATH"; wr manager status >/dev/null 2>&1 || die "start a wr manager first: wr manager start"
+    local q=(); [ -n "${TFPM_WR_QUEUE:-}" ] && q=(--queue "$TFPM_WR_QUEUE")
+    wr add -f "$out/scan_jobs.txt" -i tfpm-corpus-scan -e tfpm_corpus_scan -m 12G -t 24h --cpus 2 -r 3 "${q[@]}"
+    echo "$compile" | wr add -i tfpm-corpus-compile -e tfpm_corpus_compile -d tfpm_corpus_scan -m 8G -t 4h -r 1 "${q[@]}"
+    wr add -f "$out/analyze_jobs.txt" -i tfpm-corpus-analyze -e tfpm_corpus_analyze -d tfpm_corpus_compile -m 16G -t 24h -r 3 "${q[@]}"
+    echo "$agg && $combine" | wr add -i tfpm-corpus-aggregate -d tfpm_corpus_analyze -m 8G -t 2h -r 1 "${q[@]}"
+    echo "Queued corpus scan/compile/analyze/aggregate. Check: tfpm status --run $run"
+  else
+    setsid nohup bash -c "set -e; xargs -P $par -I{} bash -c '{}' < '$out/scan_jobs.txt'; $compile; xargs -P $par -I{} bash -c '{}' < '$out/analyze_jobs.txt'; $agg; $combine; touch '$out/logs/local.finished'" > "$out/logs/local.log" 2>&1 &
+    echo "Started corpus scan/analyze locally ($par parallel); log $out/logs/local.log"
+  fi
+}
+
 case "${1:-}" in
   setup) shift; cmd_setup "$@";; mine) shift; cmd_mine "$@";; status) cmd_status;;
-  publish) shift; cmd_publish "$@";; aggregate) cmd_aggregate;; replicate) shift; cmd_replicate "$@";; atac) shift; cmd_atac "$@";; replicate-aggregate) shift; cmd_rep_aggregate "$@";; embed) shift; cmd_embed "$@";; *) usage;;
+  publish) shift; cmd_publish "$@";; aggregate) cmd_aggregate;; replicate) shift; cmd_replicate "$@";; atac) shift; cmd_atac "$@";; corpus) shift; cmd_corpus "$@";; replicate-aggregate) shift; cmd_rep_aggregate "$@";; embed) shift; cmd_embed "$@";; *) usage;;
 esac

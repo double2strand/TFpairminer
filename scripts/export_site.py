@@ -23,7 +23,7 @@ STRATUM = ["cell_type_id", "cell_type", "tissue_id", "tissue", "disease_id", "di
 PCOLS = ["s", "tf1", "tf2", "n_datasets", "n_collections", "n_cells", "co_detected", "r", "lift", "donor_r",
          "primary_stat", "primary_r", "min_q", "k_meta", "meta_r", "meta_p", "meta_q", "tau2", "i2",
          "prior", "prior_evidence", "prior_classes", "pmids", "pair_id", "tf1_det", "tf2_det",
-         "replication", "atac_level"]  # last two: future layers, null = not yet run
+         "replication", "atac_level", "atac_corpus"]  # last two: future layers, null = not yet run
 SRC = {"n_datasets": "n_datasets_with_hit", "n_collections": "n_collections_with_hit", "n_cells": "n_cells_in_hit_datasets",
        "co_detected": "co_detected_cells", "r": "cell_r_weighted_by_cells", "lift": "mean_co_detection_lift",
        "donor_r": "mean_donor_r_when_available", "primary_stat": "primary_stat", "primary_r": "best_primary_r",
@@ -201,6 +201,66 @@ def main():
         if px:
             o["proxy_label"] = ATAC_LABEL.get(px[0]["result"], px[0]["result"]); o["proxy_status"] = px[0]["result"]
         return o
+    # ---- Human-scATAC-Corpus layer (mining/human_scatac_corpus_integration): separate from CATlas, RNA-first
+    CORPUS_LABEL = {"corpus_coenriched_independent_source": "co-enriched (independent study)",
+                    "corpus_coenriched_shared_catlas_source": "co-enriched (CATlas source study)",
+                    "not_coenriched": "not co-enriched", "proxy_coenriched": "co-enriched (proxy)", "proxy_not_coenriched": "not co-enriched (proxy)",
+                    "no_reviewed_corpus_mapping": "no matched ATAC test", "no_matched_test": "no matched ATAC test"}
+    cdir = run / "atac_corpus"; corpus = None
+    if (cdir / "aggregate" / "corpus_pair_results.tsv.gz").exists():
+        cres = defaultdict(list)
+        for r in rows(cdir / "aggregate" / "corpus_pair_results.tsv.gz"):
+            cres[r["candidate_id"]].append({"result": r["corpus_result"], "label": CORPUS_LABEL.get(r["corpus_result"], r["corpus_result"].replace("_", " ")),
+                "sample_id": r["sample_id"], "sample": r["sample"], "dataset": r["dataset"], "hsc_cell_type": r["hsc_cell_type"],
+                "hsc_n_cells": num(r["hsc_n_cells"]), "stage": r["source_stage"], "overlaps_catlas_source": r["overlaps_catlas_source"],
+                "tier": r["mapping_tier"], "reviewed": r["mapping_reviewed"], "mapping_status": r["mapping_status"], "motif_status": r["motif_status"],
+                "tf1_motifs": r["tf1_motifs"], "tf2_motifs": r["tf2_motifs"],
+                **{k: num(r[k]) for k in ["n_accessible_cCREs", "n_matched_foreground", "n_matched_background", "tf1_fg_hits", "tf1_bg_hits", "tf2_fg_hits",
+                   "tf2_bg_hits", "joint_fg_hits", "joint_bg_hits", "tf1_odds_ratio", "tf2_odds_ratio", "joint_odds_ratio", "tf1_q", "tf2_q", "joint_q",
+                   "joint_lift_fg", "joint_lift_bg"]}})
+        csum = {r["candidate_id"]: r for r in rows(cdir / "aggregate" / "candidate_summary.tsv")}
+        idx = list(rows(cdir / "celltypes.tsv")) if (cdir / "celltypes.tsv").exists() else []
+        recs = list(rows(cdir / "sample_recommendations.tsv")) if (cdir / "sample_recommendations.tsv").exists() else []
+        samples = {}
+        for r in idx:
+            sm = samples.setdefault(r["sample_id"], {"sample_id": r["sample_id"], "sample": r["sample"], "dataset": r["dataset"], "tissue": r["tissue"],
+                                     "organ": r["organ"], "pmid": r["pmid"], "stage": r["source_stage"], "overlaps_catlas_source": r["overlaps_catlas_source"],
+                                     "n_cCREs": num(r["n_cCREs"]), "labels": []})
+            sm["labels"].append([r["hsc_cell_type"], num(r["n_cells"])])
+        for sm in samples.values():
+            sm["labels"].sort(key=lambda x: -(x[1] or 0))
+        corpus = {"res": cres, "sum": csum, "samples": samples, "recs": recs,
+                  "manifest": json.loads((cdir / "manifest.json").read_text()), "summary": json.loads((cdir / "aggregate" / "summary.json").read_text()),
+                  "review": list(rows(cdir / "mapping_review.tsv")),
+                  "combined": json.loads((cdir / "combined_rna_atac_evidence.tsv.manifest.json").read_text()) if (cdir / "combined_rna_atac_evidence.tsv.manifest.json").exists() else None}
+    def corpus_obj(cid, r, rep_ok):
+        if corpus is None:
+            return None
+        if cid is None or not rep_ok:
+            return {"status": "not_tested", "label": "not tested (not replicated)"}
+        res = corpus["res"].get(cid, [])
+        if not res:
+            return {"status": "not_tested", "label": "not tested"}
+        tested = [x for x in res if x["result"] in CORPUS_LABEL and x["result"] not in ("no_reviewed_corpus_mapping",)]
+        order = ["corpus_coenriched_independent_source", "corpus_coenriched_shared_catlas_source", "proxy_coenriched", "not_coenriched", "proxy_not_coenriched"]
+        best = min(tested, key=lambda x: order.index(x["result"]) if x["result"] in order else 99) if tested else res[0]
+        st = best["result"]
+        if st == "no_reviewed_corpus_mapping":
+            st = "no_matched_test"
+            recs = [x for x in corpus["recs"] if x["tissue_id"] == r["tissue_id"]]
+            idxd = [corpus["samples"][x["sample_id"]] for x in recs if x["sample_id"] in corpus["samples"]]
+            why = (f"Corpus samples for {r['tissue']}: " + (", ".join(f"{x['sample_id']} ({x['dataset']}, {corpus['samples'][x['sample_id']]['stage'] + ' tissue, indexed' if x['sample_id'] in corpus['samples'] else 'not indexed'})" for x in recs) or "none") +
+                   ". " + ("; ".join(f"Indexed sample {s['sample_id']} has {len(s['labels'])} cell labels, none reviewed as {r['cell_type']}" for s in idxd) or "No sample indexed yet") +
+                   ". No reviewed crosswalk row, so no test was run (not a negative result).")
+        else:
+            why = ""
+        cs = corpus["sum"].get(cid, {})
+        return {"status": st, "label": CORPUS_LABEL.get(st, st), "summary": cs.get("corpus_summary"), "reason": why,
+                "n_mapped_samples": num(cs.get("n_corpus_mapped_samples", "0")), "n_tested_samples": num(cs.get("n_corpus_tested_samples", "0")),
+                "n_independent_supporting_datasets": num(cs.get("n_independent_supporting_datasets", "0")),
+                "catlas_source_overlap": any(x["overlaps_catlas_source"] == "Yes" for x in res if x["sample_id"]) or
+                                         any(x["overlaps_catlas_source"] == "Yes" for x in corpus["recs"] if x["tissue_id"] == r["tissue_id"]),
+                "results": [x for x in res if x["sample_id"]]}
     P = []
     for r in rows(agg / "cell_type_pair_candidates.tsv"):
         s = stratum(r)
@@ -212,12 +272,13 @@ def main():
         row["pair_id"] = " | ".join(sorted(pair_ids.get(tuple(h), ())))
         d1, d2 = det.get((s, r["tf1_ensembl"])), det.get((s, r["tf2_ensembl"]))
         row["tf1_det"] = None if d1 is None else round(d1, 4); row["tf2_det"] = None if d2 is None else round(d2, 4)
-        row["replication"] = None; row["atac_level"] = None
+        row["replication"] = None; row["atac_level"] = None; row["atac_corpus"] = None
         if rep_info is not None:
             cid = tsv.candidate_id(r)
             if cid in rep_best:
                 row["replication"] = {**rep_best[cid], "candidate_id": cid, "assays": rep_assays.get(cid, [])}
             row["atac_level"] = atac_obj(cid, r["cell_type_id"], row["replication"] is not None and row["replication"]["status"] == "replicated_donor_supported")
+            row["atac_corpus"] = corpus_obj(cid, r, row["replication"] is not None and row["replication"]["status"] == "replicated_donor_supported")
         P.append([row[c] for c in PCOLS])
     # stable rank: collections desc, primary r desc
     ci, pi, ri = PCOLS.index("n_collections"), PCOLS.index("primary_r"), PCOLS.index("r")
@@ -252,6 +313,42 @@ def main():
     dump(out / "heatmap.json", {"tfs": htf, "strata": hs, "detection": [[hv.get((t, s)) for s in hs] for t in htf]})
 
     downloads = {}
+    def corpus_layer():
+        if corpus is None:
+            return {"status": "not_run", "title": "scATAC: Human-scATAC-Corpus", "column": "atac_corpus"}
+        return {"status": "done", "title": "scATAC: Human-scATAC-Corpus (RNA-first, separate from CATlas)", "column": "atac_corpus",
+                "reference": "Human-scATAC-Corpus, Nucleic Acids Res 2026;54(D1):D175 (per-sample cell x cCRE matrices)",
+                "url": "https://health.tsinghua.edu.cn/human-scatac-corpus/",
+                "manifest": corpus["manifest"], "summary": corpus["summary"], "combined": corpus["combined"], "recommendations": corpus["recs"],
+                "samples": list(corpus["samples"].values()), "mapping_review": corpus["review"],
+                "caveat": ("Same-cCRE motif co-enrichment in accessible vs matched inaccessible corpus cCREs for a REVIEWED matching cell type. "
+                           "Not co-binding. Pairs are selected by Tabula Sapiens RNA replication only; CATlas results never select pairs. "
+                           "Corpus samples from Zhang2021/Domcke2020 share source studies with CATlas and are not independent. "
+                           "'No matched ATAC test' is not a negative result.")}
+    def coverage():
+        cat_rev = {r["cell_type_id"]: r for r in (atac_exact or atac_proxy or {"review": []})["review"]}
+        out_ = []
+        for i, st in enumerate(strata):
+            st = dict(zip(STRATUM, st))
+            rr = [p for p in P if p[0] == i]
+            rep_i = PCOLS.index("replication")
+            n_rep = sum(1 for p in rr if p[rep_i] and p[rep_i]["status"] == "replicated_donor_supported")
+            cr = cat_rev.get(st["cell_type_id"])
+            cmap = [m for m in ((atac_proxy or {}).get("crosswalk") or []) if m["cell_type_id"] == st["cell_type_id"]]
+            catlas = (None if not (atac_exact or atac_proxy) else
+                      {"status": "exact" if cr and cr["exact_ontology_clusters"] else ("fetal_only" if cr and cr.get("fetal_only_clusters") else ("not_checked" if not cr else "none")),
+                       "exact": cr["exact_ontology_clusters"] if cr else "", "fetal_only": cr.get("fetal_only_clusters", "") if cr else "",
+                       "proxy": ";".join(f"{m['catlas_cluster']} ({m['mapping_tier']})" for m in cmap)})
+            cor = None
+            if corpus is not None:
+                recs = [x for x in corpus["recs"] if x["tissue_id"] == st["tissue_id"]]
+                tested_ct = any(x["sample_id"] for res in corpus["res"].values() for x in res if x.get("hsc_cell_type") and x["mapping_status"] == "mapped")
+                cor = {"status": "mapped" if tested_ct else ("indexed_no_match" if any(x["sample_id"] in corpus["samples"] for x in recs) else
+                                                              ("samples_available" if recs else "no_samples")),
+                       "samples": [{"sample_id": x["sample_id"], "dataset": x["dataset"], "indexed": x["sample_id"] in corpus["samples"],
+                                    "overlaps_catlas_source": x["overlaps_catlas_source"], "n_cells": num(x["n_cells_catalog"])} for x in recs]}
+            out_.append({"s": i, "n_rows": len(rr), "n_replicated": n_rep, "catlas": catlas, "corpus": cor})
+        return out_
     def atac_layer():
         L = {"status": "not_run", "title": "scATAC evidence (levels A-D)", "column": "atac_level",
              "levels": {"A": {"name": "cell-type accessibility of both TF loci", "status": "not_run"},
@@ -276,6 +373,10 @@ def main():
     if rep_info:
         srcs += [rep_dir / "aggregate" / "replication_results.tsv.gz", rep_dir / "aggregate" / "candidate_summary.tsv.gz"]
     atac_srcs = [(A["dir"] / "aggregate" / "catlas_pair_results.tsv.gz", f"atac_{tag}_catlas_pair_results.tsv.gz") for tag, A in (("exact", atac_exact), ("proxy_fetal", atac_proxy)) if A]
+    if corpus is not None:
+        atac_srcs += [(cdir / "aggregate" / "corpus_pair_results.tsv.gz", "corpus_pair_results.tsv.gz")]
+        if (cdir / "combined_rna_atac_evidence.tsv").exists():
+            atac_srcs += [(cdir / "combined_rna_atac_evidence.tsv", "combined_rna_atac_evidence.tsv")]
     for src, name in atac_srcs:
         shutil.copyfile(src, out / name); downloads[name] = name
     for src in srcs:
@@ -307,7 +408,8 @@ def main():
                                            "thresholds": rep_info["manifest"]["thresholds"], "summary": rep_info["summary"],
                                            "independence_note": rep_info["manifest"].get("independence_note", ""),
                                            "complete": rep_info["summary"].get("complete")} if rep_info else {})},
-                       "scatac": atac_layer()},
+                       "scatac": atac_layer(), "atac_corpus": corpus_layer()},
+             "coverage": coverage(),
             "profile_detection_floor": a.min_profile_detection, "top_n": a.top_n, "downloads": downloads}
     if keep_embed is not None:
         shutil.move(str(keep_embed), out / "embed")
