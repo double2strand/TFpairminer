@@ -1,0 +1,12 @@
+# ChromBPNet evidence layer (python 3.10/3.11). Box/CPU: tensorflow-cpu; cluster GPU: tensorflow[and-cuda]==2.15.1 + chrombpnet
+tensorflow-cpu==2.15.1 ; platform_machine == "x86_64"
+numpy==1.26.4
+pandas
+scipy
+numba
+h5py
+pyfaidx
+modisco-lite
+pytest
+# for `train` without --pretrained and DeepSHAP (`--method deepshap`) also install on the GPU node:
+#   pip install chrombpnet macs3   (+ bedtools, ucsc bedGraphToBigWig on PATH)

@@ -8,3 +8,6 @@
 .big{font-size:20px;margin:0 0 4px}.tag{font-size:11px;color:var(--muted)}
 .ex td{font-family:ui-monospace,monospace;font-size:11.5px}
 .hm{width:auto!important}.hm thead th:first-child{background:#fff}
+
+.cbp-yes{background:#0f766e;color:#fff}.cbp-no{background:#fee2e2;color:#991b1b}.cbp-na{background:#f1f5f9;color:#475569}.cbp-nr{background:#f8fafc;color:#64748b;border:1px dashed #cbd5e1}.cbp-syn{background:#7c3aed;color:#fff}
+.cbp{border-top:3px solid #0f766e}.trk{width:100%;max-width:780px;height:auto;display:block;margin-top:8px}.ok{color:#0f766e}

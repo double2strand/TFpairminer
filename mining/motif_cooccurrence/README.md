@@ -92,11 +92,44 @@ python -m motif_cooccurrence.cli aggregate --out run --site run/site --meme ...
 ```
 Per-sample outputs are `windows.tsv`, `hits.npz`, `pairs.tsv`, `pair_site_examples.tsv`, `motif_sets.tsv`, `modules.tsv` and `summary.json`.
 
+## ChromBPNet evidence layer (`chrombpnet.py`, `tfpm v2 chrombpnet`)
+
+This is a separate evidence layer on top of the motif calls. It never changes a motif rating. The site shows it as its own panel and badge ("contribution-supported" / "not supported" / "too few joint windows" / "not yet run"). It follows the spec in `chrombpnet_pair_discovery/README.md`.
+
+| stage | what it does | output (`$OUT/samples/<id>/chrombpnet/`) |
+|---|---|---|
+| `train` | `--pretrained <h5\|URL>` copies an ENCODE bias-corrected model. Otherwise it writes and runs `train.sh`: merge fragments → MACS3 peaks → blacklist → `chrombpnet prep nonpeaks` → `chrombpnet bias pipeline` (or `--bias-model`) → `chrombpnet pipeline` | `model/chrombpnet_nobias.h5`, `SOURCE.json` |
+| `contrib` | Picks candidates (top distinct pairs in the sample, cross-profile strong/moderate pairs, broad controls, a watch list, synergistic sets). Window universe = top `--n-top` windows by cuts + `--per-candidate` windows with all sites. Contributions: integrated gradients from dinucleotide-shuffled references on the counts head (`--method ig`, CPU/GPU), or `--method deepshap` → `chrombpnet contribs_bw` | `candidates.json`, `contrib.shard{k}.npz` |
+| `modisco` | modisco-lite on the contribution scores; each pattern is mapped to its best JASPAR match | `modisco.h5`, `modisco_patterns.tsv` |
+| `pairs` | **Contribution support:** the median contribution percentile of each motif site, against random same-length positions in the same windows; supported if every site ≥ 0.75. **Ablation:** site bases are shuffled (2 seeds) singly and jointly; synergy = Δjoint − ΣΔsingle on predicted log-counts; Wilcoxon over windows, then BH → synergistic / sub-additive / additive. Triplets also get synergy vs the best sub-pair. Example contribution tracks are exported | `pairs_cbp.tsv`, `tracks.json`, `cbp_summary.json` |
+
+`aggregate` picks these files up automatically. Profiles without them are shown as "not yet run".
+
+```bash
+# separate venv (TensorFlow 2.15; GPU node: tensorflow[and-cuda]==2.15.1, plus `pip install chrombpnet macs3` for training/DeepSHAP)
+python3.11 -m venv .venv_cbp && .venv_cbp/bin/pip install -r mining/motif_cooccurrence/requirements_chrombpnet.txt
+# pretrained ENCODE models (fold 0; HF kundajelab/encode-chrombpnet-ATAC-<cell>-<ENCSR>-<ENCSR>), id<TAB>path-or-URL
+cat > cbp_models.tsv <<T
+CCLA_HepG2	/path/HepG2.nobias.h5
+CCLA_K562	/path/K562.nobias.h5
+CCLA_A549	/path/A549.nobias.h5
+T
+./tfpm v2 chrombpnet train   --runner wr --pretrained-map cbp_models.tsv      # omit the map to train from fragments (GPU)
+./tfpm v2 chrombpnet contrib --runner wr --nshards 8                          # GPU jobs, -d on train
+./tfpm v2 chrombpnet pairs   --runner wr --nshards 8                          # GPU; merge + aggregate jobs follow via -d
+./tfpm v2 chrombpnet modisco --runner wr                                      # CPU
+./tfpm v2 publish
+# workstation: same commands with --runner local; or `all`:
+./tfpm v2 chrombpnet all --runner local --only CCLA_HepG2 --pretrained-map cbp_models.tsv
+```
+
+wr GPU settings: `TFPM_CBP_WR_QUEUE` (default `gpu-normal`), `TFPM_CBP_WR_GPU` (default `-gpu "num=1:gmem=24000"`, passed via `--misc`), `TFPM_CBP_WR_MEM` (32G). HSC Zhu2023 is skipped, as in the spec. Use DeepSHAP on the cluster for publication runs; IG is the CPU fallback used on the build box.
+
 ## Tests
 
 `cd mining && python -m pytest -q motif_cooccurrence/tests`
 
-The tests cover an exact-threshold check against brute force, BH, strata, and a synthetic genome with a planted motif pair recovered end-to-end through aggregation.
+`test_chrombpnet.py` covers the dinucleotide-shuffle invariants, sharding, the merge/BH labels, and gradients through a tiny random Keras model with the ChromBPNet I/O shape. The other tests cover an exact-threshold check against brute force, BH, strata, and a synthetic genome with a planted motif pair recovered end-to-end through aggregation.
 
 ## Status / untested
 

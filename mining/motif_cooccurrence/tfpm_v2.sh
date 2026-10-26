@@ -26,6 +26,13 @@ Usage: tfpm v2 <command>
   status                     per-sample state
   aggregate                  cross-sample consistency -> $OUT/site
   publish [--no-push]        aggregate -> docs/v2/data -> git commit (+ push)
+  chrombpnet <stage> --runner wr|local [--only ID[,ID]] [--nshards N] [-- extra stage flags]
+                             ChromBPNet evidence layer (separate venv: TFPM_CBP_VENV, GPU recommended)
+     stages: train | contrib | modisco | pairs | all
+     train: --pretrained-map FILE (TSV id<TAB>h5-or-URL; ENCODE models) else writes/executes train.sh
+            (fragments -> MACS3 peaks -> bias model -> chrombpnet pipeline) from manifest fragments
+     contrib/pairs shard over N jobs (merge job depends on shards); wr GPU jobs use
+            TFPM_CBP_WR_QUEUE (gpu-normal) TFPM_CBP_WR_GPU ('-gpu "num=1:gmem=24000"') TFPM_CBP_WR_MEM (32G)
 Out: $OUT   Manifest: $MANIFEST
 U
 }
@@ -97,7 +104,51 @@ cmd_publish(){
   [ $push = 1 ] && git push || true
 }
 
+CBP_VENV="${TFPM_CBP_VENV:-$ROOT/.venv_cbp}"; CPY="$CBP_VENV/bin/python"
+cmd_chrombpnet(){
+  local stage="${1:-}"; shift || true; local runner="" only="" ns=1 extra="" pmap="${TFPM_CBP_PRETRAINED_MAP:-}"
+  while [ $# -gt 0 ]; do case "$1" in
+    --runner) runner="$2"; shift 2;; --only) only="$2"; shift 2;; --nshards) ns="$2"; shift 2;;
+    --pretrained-map) pmap="$2"; shift 2;; --) shift; extra="$*"; break;; *) die "unknown option $1";; esac; done
+  [ -x "$CPY" ] || die "ChromBPNet venv missing: python3.11 -m venv $CBP_VENV && $CBP_VENV/bin/pip install -r $HERE/requirements_chrombpnet.txt"
+  [ "$stage" = all ] && { for s in train contrib pairs modisco; do cmd_chrombpnet $s --runner "$runner" --nshards "$ns" ${only:+--only $only} ${pmap:+--pretrained-map $pmap} -- $extra; done; return; }
+  mkdir -p "$OUT/logs"; local jobs="$OUT/cbp_$stage.jobs" merge="$OUT/cbp_${stage}_merge.jobs"; : > "$jobs"; : > "$merge"
+  local M="cd $ROOT/mining && $CPY -m motif_cooccurrence.chrombpnet"
+  tail -n +2 "$MANIFEST" | while IFS=$'\t' read -r id ds ctx kind inputs rest; do
+    [ -z "$only" ] || [[ ",$only," == *",$id,"* ]] || continue
+    [[ "$id" == *Zhu2023* ]] && continue      # HSC Zhu2023 excluded from the Corpus branch (spec)
+    local sd="$OUT/samples/$id" o="$OUT/samples/$id/chrombpnet" C="--sample-dir $OUT/samples/$id --model $OUT/samples/$id/chrombpnet/model --genome $GENOME"
+    case "$stage" in
+      train)
+        local pre=""; [ -n "$pmap" ] && pre=$(awk -F'\t' -v i="$id" '$1==i{print $2}' "$pmap")
+        if [ -n "$pre" ]; then echo "$M train --out $o --pretrained $pre > $OUT/logs/cbp_train_$id.log 2>&1" >> "$jobs"
+        else echo "$M train --out $o --name $id --fragments ${inputs//,/ } --fasta ${TFPM_V2_GENOME_FASTA:-$OUT/ref/hg38.fa} --chrom-sizes ${TFPM_CBP_CHROM_SIZES:-$OUT/ref/hg38.chrom.sizes} --blacklist $BL --fold ${TFPM_CBP_FOLD:-$OUT/ref/fold_0.json} --execute $extra > $OUT/logs/cbp_train_$id.log 2>&1" >> "$jobs"; fi;;
+      contrib) for k in $(seq 0 $((ns-1))); do echo "$M contrib --out $o $C --site-index $OUT/site/index.json --shard $k --nshards $ns $extra > $OUT/logs/cbp_contrib_${id}_$k.log 2>&1" >> "$jobs"; done
+               # contrib shards each write contrib.shard{k}.npz; stage pairs reads all of them (candidates.json is deterministic per shard)
+               ;;
+      pairs) for k in $(seq 0 $((ns-1))); do echo "$M pairs --out $o $C --shard $k --nshards $ns $extra > $OUT/logs/cbp_pairs_${id}_$k.log 2>&1" >> "$jobs"; done
+             echo "$M merge --out $o > $OUT/logs/cbp_merge_$id.log 2>&1" >> "$merge";;
+      modisco) echo "$M modisco --out $o --meme $MEME $extra > $OUT/logs/cbp_modisco_$id.log 2>&1" >> "$jobs";;
+      *) die "stage must be train|contrib|modisco|pairs|all";;
+    esac
+  done
+  local n; n=$(wc -l < "$jobs")
+  case "$runner" in
+    wr)
+      command -v wr >/dev/null || die "wr not on PATH"; wr manager status >/dev/null 2>&1 || die "no wr manager running"
+      local gq="${TFPM_CBP_WR_QUEUE:-gpu-normal}" gm="${TFPM_CBP_WR_GPU:--gpu \"num=1:gmem=24000\"}" dep=()
+      case "$stage" in contrib) dep=(-d tfpm_cbp_train);; pairs) dep=(-d tfpm_cbp_contrib);; modisco) dep=(-d tfpm_cbp_contrib);; esac
+      local gpu=(--queue "$gq" --misc "$gm"); [ "$stage" = modisco ] && gpu=()   # modisco is CPU-only
+      wr add -f "$jobs" -i "tfpm-cbp-$stage" -e "tfpm_cbp_$stage" "${dep[@]}" -m "${TFPM_CBP_WR_MEM:-32G}" -t "${TFPM_CBP_WR_TIME:-12h}" --cpus 4 -r 2 "${gpu[@]}"
+      [ -s "$merge" ] && wr add -f "$merge" -i tfpm-cbp-merge -e tfpm_cbp_merge -d "tfpm_cbp_$stage" -m 8G -t 1h -r 1
+      [ "$stage" = pairs ] && echo "$HERE/tfpm_v2.sh aggregate" | wr add -i tfpm-v2-aggregate -d tfpm_cbp_merge -m 8G -t 2h -r 1
+      echo "Queued $n ChromBPNet $stage jobs (wr status -i tfpm-cbp-$stage)";;
+    local) cat "$jobs" "$merge" | while read -r j; do echo "+ ${j%% >*}"; bash -c "$j" || die "failed: see log"; done;;
+    *) die "use --runner wr or --runner local";;
+  esac
+}
+
 case "${1:-}" in
   setup) shift; cmd_setup "$@";; discover) cmd_discover;; run) shift; cmd_run "$@";; status) cmd_status;;
-  aggregate) cmd_aggregate;; publish) shift; cmd_publish "$@";; *) usage;;
+  aggregate) cmd_aggregate;; publish) shift; cmd_publish "$@";; chrombpnet) shift; cmd_chrombpnet "$@";; *) usage;;
 esac

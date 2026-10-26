@@ -62,6 +62,19 @@ def summary_text(c, units):
     return s
 
 
+def cbp_text(c, ev):
+    tested = {u: e for u, e in ev.items() if e["st"] == "tested"}
+    if not tested:
+        return (" Evidence: motif co-occurrence only (ChromBPNet not yet run for this pair)." if not ev else
+                " Evidence: motif co-occurrence only (ChromBPNet run, but too few windows with both sites to test).")
+    sup = [u for u, e in tested.items() if e["sup"] == "yes"]
+    syn = [u for u, e in tested.items() if e.get("coop") == "synergistic"]
+    t = (f" Evidence: ChromBPNet contribution scores support both motif sites in {len(sup)} of {len(tested)} profiles tested"
+         if sup else f" Evidence: motif co-occurrence only; ChromBPNet contribution scores did not highlight both sites ({len(tested)} profile(s) tested)")
+    t += (f"; joint in-silico ablation is synergistic (non-additive) in {len(syn)}." if syn else "; no significant ablation synergy.")
+    return t
+
+
 def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
     out, site = Path(out), Path(site)
     for d in ("tf", "samples"):
@@ -108,6 +121,38 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
                              "sl": _f(r["synergy_lift"], 3), "q": _f(r["q_synergy"], 3), "s": r["status"]})
         for r in read_tsv(d / "modules.tsv") if (d / "modules.tsv").exists() else []:
             mods.append({"u": u, "tfs": r["module"].split("+"), "n": int(r["n_windows_all"])})
+    # ---- ChromBPNet evidence layer (optional; samples/<u>/chrombpnet/)
+    cbp, cbp_tracks, cbp_sets, cbp_units = defaultdict(dict), defaultdict(list), defaultdict(dict), {}
+    for u in U:
+        cd = units[u]["dir"] / "chrombpnet"
+        if not (cd / "pairs_cbp.tsv").exists():
+            continue
+        src = json.loads((cd / "model" / "SOURCE.json").read_text()) if (cd / "model" / "SOURCE.json").exists() else {}
+        cbp_units[u] = {**(json.loads((cd / "cbp_summary.json").read_text()) if (cd / "cbp_summary.json").exists() else {}),
+                        "model": src.get("source") or src.get("pretrained", ""), "method": src.get("note", ""),
+                        "modisco": [{k: r[k] for k in ("pattern", "n_seqlets", "consensus", "best_jaspar", "best_jaspar_id")}
+                                    for r in (read_tsv(cd / "modisco_patterns.tsv") if (cd / "modisco_patterns.tsv").exists() else [])][:25]}
+        for r in read_tsv(cd / "pairs_cbp.tsv"):
+            tfs = tuple(sorted(r["tfs"].split("+")))
+            e = {"st": r["status"], "n": int(float(r["n_windows"])) if r.get("n_windows") else 0}
+            if r["status"] == "tested":
+                e |= {"sup": r["contribution_supported"], "syn": _f(r["synergy"], 4), "p": _f(r["synergy_p"], 3),
+                      "q": _f(r.get("synergy_q"), 3), "coop": r.get("cooperative", ""),
+                      "pct": [_f(r[k], 3) for k in sorted(r) if k.startswith("median_site_pct_") and r[k] != ""],
+                      "dj": _f(r["delta_joint"], 4), "ds": [_f(r[k], 4) for k in sorted(r) if k.startswith("delta_") and k[6:].isdigit() and r[k] != ""]}
+            (cbp if len(tfs) == 2 else cbp_sets)[tfs][u] = e
+        if (cd / "tracks.json").exists():
+            for t in json.loads((cd / "tracks.json").read_text()):
+                tfs = tuple(sorted(t["tfs"].split("+")))
+                if len(cbp_tracks[tfs]) < 4:
+                    cbp_tracks[tfs].append({**t, "u": u})
+
+    def cbp_label(tfs):
+        ev = cbp.get(tfs) or cbp_sets.get(tfs) or {}
+        tested = [e for e in ev.values() if e["st"] == "tested"]
+        if not tested:
+            return "not_run" if not ev else "untestable"
+        return "supported" if any(e["sup"] == "yes" for e in tested) else "not_supported"
     cons = []
     for (a, b), per in pairs.items():
         sigu = [u for u, v in per.items() if v["s"] in "DF" and v["s"] != "E"]
@@ -129,6 +174,8 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
         if c["n_units"] >= 4 and c["n_sig"] >= 0.75 * c["n_units"]:
             c["family_flags"] = c["family_flags"] + ["broad"]
         c["rating"], c["rating_label"] = rating(c)
+        c["cbp"] = cbp_label((a, b))
+        c["cbp_coop"] = sorted({e.get("coop") for e in cbp.get((a, b), {}).values() if e.get("coop")})
         c["score"] = round(c["n_distinct_rep"] * 3 + c["n_distinct_any"] + 0.5 * c["n_sig"]
                            + min(10, -math.log10(max(c["best_q"], 1e-300))) / 10 + (c["median_lift_sig"] or 1) / 10, 3)
         cons.append(c)
@@ -136,7 +183,12 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
     cons.sort(key=lambda c: (order[c["rating"]], -c["score"]))
     cons = cons[:max_pairs]
     for c in cons:
-        c["summary"] = summary_text(c, units)
+        c["summary"] = summary_text(c, units) + cbp_text(c, cbp.get((c["tf_a"], c["tf_b"]), {}))
+    for s_ in sets:
+        e = cbp_sets.get(tuple(sorted(s_["tfs"])), {})
+        s_["cbp"] = cbp_label(tuple(sorted(s_["tfs"])))
+        if s_["u"] in e and e[s_["u"]]["st"] == "tested":
+            s_["cbp_e"] = e[s_["u"]]
     # per-TF detail files
     by_tf = defaultdict(list)
     for c in cons:
@@ -151,6 +203,7 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
             mod_by_tf[t].append(m)
     for tf, cl in by_tf.items():
         det = {"tf": tf, "pairs": [], "sets": sorted(set_by_tf.get(tf, []), key=lambda s: s["q"] or 1)[:200],
+               "set_tracks": {"+".join(k): v for k, v in cbp_tracks.items() if len(k) > 2 and tf in k},
                "modules": mod_by_tf.get(tf, [])[:100]}
         for c in cl:
             key = (c["tf_a"], c["tf_b"])
@@ -159,14 +212,16 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
                 if not e["amb"]: del e["amb"]
             first = next(iter(pairs[key].values()))
             det["pairs"].append({**{k: v for k, v in c.items() if k != "sig_units"}, "ma": first["ma"], "mb": first["mb"],
-                                 "per": per, "examples": examples.get(key, [])[:max_examples]})
+                                 "per": per, "examples": examples.get(key, [])[:max_examples],
+                                 "cbp_per": cbp.get(key, {}), "cbp_tracks": cbp_tracks.get(key, [])})
         (site / "tf" / f"{slug(tf)}.json").write_text(json.dumps(det, separators=(",", ":")))
     # per-unit sample files
     for u in U:
         top = sorted([(k, v[u]) for k, v in pairs.items() if u in v and v[u]["s"] in "DF"],
                      key=lambda kv: (kv[1]["s"] != "D", kv[1]["r"] != "y", kv[1]["q"]))[:600]
         su = {"unit": {k: v for k, v in units[u].items() if k not in ("dir",)},
-              "pairs": [{"tf_a": k[0], "tf_b": k[1], **v} for k, v in top],
+              "pairs": [{"tf_a": k[0], "tf_b": k[1], **v, "cbp": cbp_label(k), **({"cbp_e": cbp[k][u]} if u in cbp.get(k, {}) else {})} for k, v in top],
+              "cbp": cbp_units.get(u),
               "sets": sorted([s_ for s_ in sets if s_["u"] == u], key=lambda s: s["q"] or 1)[:300],
               "modules": [m for m in mods if m["u"] == u][:100]}
         (site / "samples" / f"{slug(u)}.json").write_text(json.dumps(su, separators=(",", ":"), default=str))
@@ -179,9 +234,12 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
              "counts": {"pairs_listed": len(cons), "tfs": len(by_tf),
                         "by_rating": {r: sum(c["rating"] == r for c in cons) for r in order}},
              "pairs": [[c["tf_a"], c["tf_b"], c["rating"], c["n_sig"], c["n_distinct_rep"], c["median_lift_sig"],
-                        c["best_q"], ",".join(c["datasets"]), "|".join(c["family_flags"]), c["median_gap"]] for c in cons],
+                        c["best_q"], ",".join(c["datasets"]), "|".join(c["family_flags"]), c["median_gap"], c["cbp"],
+                        ",".join(c["cbp_coop"])] for c in cons],
              "pair_fields": ["tf_a", "tf_b", "rating", "n_sig", "n_distinct_rep", "median_lift", "best_q", "datasets",
-                             "flags", "median_gap"],
+                             "flags", "median_gap", "cbp", "cbp_coop"],
+             "cbp_units": cbp_units,
+             "cbp_counts": {k: sum(c["cbp"] == k for c in cons) for k in ("supported", "not_supported", "untestable", "not_run")},
              "top_sets": sorted([s_ for s_ in sets if s_["s"] == "synergistic_set"], key=lambda s: s["q"] or 1)[:300],
              "tf_slugs": {tf: slug(tf) for tf in by_tf}}
     (site / "index.json").write_text(json.dumps(index, separators=(",", ":"), default=str))

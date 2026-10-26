@@ -32,7 +32,7 @@ Usage:
                                         Human-scATAC-Corpus motif/accessibility layer for replicated pairs (RNA-first;
                                         CATlas never selects pairs); scans only when a reviewed mapping exists
   tfpm aggregate                        (run automatically by mine; re-aggregates safely)
-  tfpm v2 <setup|discover|run|status|aggregate|publish>
+  tfpm v2 <setup|discover|run|status|aggregate|publish|chrombpnet>
                                         v2: scATAC motif co-occurrence mining (see mining/motif_cooccurrence/README.md)
 Output dir: $OUT   Census: $CENSUS   Shards: $SHARDS
 U
