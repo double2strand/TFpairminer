@@ -4,3 +4,5 @@
 *.pyc
 __pycache__/
 tfpm.conf
+run_v2/
+.venv_v2/

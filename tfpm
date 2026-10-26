@@ -32,6 +32,8 @@ Usage:
                                         Human-scATAC-Corpus motif/accessibility layer for replicated pairs (RNA-first;
                                         CATlas never selects pairs); scans only when a reviewed mapping exists
   tfpm aggregate                        (run automatically by mine; re-aggregates safely)
+  tfpm v2 <setup|discover|run|status|aggregate|publish>
+                                        v2: scATAC motif co-occurrence mining (see mining/motif_cooccurrence/README.md)
 Output dir: $OUT   Census: $CENSUS   Shards: $SHARDS
 U
 }
@@ -296,6 +298,7 @@ cmd_corpus(){
 }
 
 case "${1:-}" in
+  v2) shift; exec "$ROOT/mining/motif_cooccurrence/tfpm_v2.sh" "$@";;
   setup) shift; cmd_setup "$@";; mine) shift; cmd_mine "$@";; status) cmd_status;;
   publish) shift; cmd_publish "$@";; aggregate) cmd_aggregate;; replicate) shift; cmd_replicate "$@";; atac) shift; cmd_atac "$@";; corpus) shift; cmd_corpus "$@";; replicate-aggregate) shift; cmd_rep_aggregate "$@";; embed) shift; cmd_embed "$@";; *) usage;;
 esac

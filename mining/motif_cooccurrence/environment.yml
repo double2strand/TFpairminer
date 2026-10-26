@@ -1,0 +1,12 @@
+name: tfpm-v2
+channels: [conda-forge]
+dependencies:
+  - python=3.12
+  - numpy>=1.26
+  - scipy>=1.11
+  - numba>=0.59
+  - pandas>=2.0
+  - anndata>=0.10
+  - h5py>=3.9
+  - pytest>=7
+  - curl
