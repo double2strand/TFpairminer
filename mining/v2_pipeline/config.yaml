@@ -44,6 +44,9 @@ chrombpnet:
   contrib_extra: ""                       # e.g. "--n-top 800 --steps 6"
   pairs_extra: "--min-windows 8 --ablate-windows 40 --seeds 2 --site-pct 0.75"
   modisco_max_seqlets: 20000
+  container: ""                           # path to kundajelab/chrombpnet .sif -> stages 04/05/05b/06 run via apptainer (recommended)
+  module_load: ""                         # e.g. "module load ISG/apptainer/1.4.0" (run before apptainer exec)
+  container_binds: []                     # extra -B paths; the repo and 'out' are always bound
 
 rna:
   census_version: "2025-11-08"            # pinned CELLxGENE Census LTS release
@@ -67,6 +70,7 @@ runner:
     gpu_misc: '-gpu "num=1:gmem=24000"'   # LSF-style GPU request passed via --misc
     retries: 2
     poll_seconds: 60
+    override: ""                          # wr add -o (e.g. higher) so learned values never undercut these resources
 
 # per stage resources: cpus, mem (GB), time, gpu (0/1). Used for wr -c/-m/-t and local concurrency.
 resources:

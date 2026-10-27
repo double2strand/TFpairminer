@@ -87,6 +87,30 @@ class Cfg:
         p = Path(p)
         return p if p.is_absolute() else (ROOT / p)
 
+    def cbp_container(self):
+        c = self.get("chrombpnet", "container")
+        return self.path_(c) if c else None
+
+    def gpu_py(self, gpu=True):
+        """Python for ChromBPNet stages: the GPU conda env, or `apptainer exec [--nv] <sif> python` when
+        chrombpnet.container is set (tensorflow 2.8 / numpy 1.23 / py3.8 inside the kundajelab image)."""
+        sif = self.cbp_container()
+        if not sif:
+            return self.py("gpu")
+        C = self["chrombpnet"]
+        binds = []
+        for b in [str(ROOT), str(self.out)] + list(C.get("container_binds") or []):
+            b = os.path.expandvars(str(b))
+            if b and b not in binds:
+                binds.append(b)
+        pre = ""
+        if C.get("module_load"):
+            pre = ("{ type module >/dev/null 2>&1 || source /etc/profile.d/modules.sh >/dev/null 2>&1 || true; }; "
+                   f"{C['module_load']} >/dev/null 2>&1; ")
+        nv = "--nv " if gpu else ""
+        return (f"{pre}{C.get('container_exec', 'apptainer')} exec {nv}-B {shlex.quote(','.join(binds))} "
+                f"--env PYTHONPATH={shlex.quote(str(MINING))} {shlex.quote(str(sif))} {C.get('container_python', 'python')}")
+
     def py(self, which):
         p = self.get("python", which) or sys.executable
         return p if (os.path.exists(p) or shutil.which(p)) else sys.executable if which == "main" else p
@@ -270,6 +294,11 @@ def st00(cfg):
     def check(u, log):
         rep = {}
         for k in ("main", "rna", "gpu"):
+            if k == "gpu" and cfg.cbp_container():
+                sif = cfg.cbp_container()
+                rep[k] = {"python": cfg.gpu_py(), "ok": sif.exists(), "err": "" if sif.exists() else f"container missing: {sif}",
+                          "note": "container mode: GPU/TF are checked inside the image at stage 04 (not on this node)"}
+                continue
             py = cfg.py(k); mods = {"main": "numpy,numba,anndata,scipy,motif_cooccurrence.engine",
                                     "rna": "numpy,anndata,tf_census", "gpu": "tensorflow,modiscolite"}[k]
             p = subprocess.run([py, "-c", f"import {mods}; print('ok')"], cwd=MINING, capture_output=True, text=True) \
@@ -468,7 +497,7 @@ def link_windows(prof):
 
 
 def st04(cfg):
-    C = cfg["chrombpnet"]; units = []; G = cfg.py("gpu"); ref = cfg.out / "ref"
+    C = cfg["chrombpnet"]; units = []; G = cfg.gpu_py(); ref = cfg.out / "ref"
     for p in profiles(cfg):
         def model(u, log, p=p):
             o = cbp(p); o.mkdir(parents=True, exist_ok=True)
@@ -491,7 +520,7 @@ def st04(cfg):
             if nfrag < int(C.get("min_fragments", 0)):
                 raise Skip(f"{nfrag} fragments < min_fragments {C['min_fragments']}: too shallow for de-novo ChromBPNet")
             bias = f"--bias-model {C['bias_model']}" if C.get("bias_model") else ""
-            env = {"PATH": f"{cfg.get('python', 'gpu_bin')}:{os.environ['PATH']}"}
+            env = None if cfg.cbp_container() else {"PATH": f"{cfg.get('python', 'gpu_bin')}:{os.environ['PATH']}"}
             run(f"{base} --name {slug(p['profile'])} --fragments {' '.join(frs)} --fasta {cfg.fasta} --chrom-sizes {ref / 'hg38.chrom.sizes'} "
                 f"--blacklist {cfg.blacklist} --fold {ref / 'fold_0.json'} --max-peaks {C['max_peaks']} {bias} --execute", log, env=env)
             (o / "model" / "SOURCE.json").write_text(json.dumps({"source": f"trained de novo on {p['profile']} fragments ({nfrag})",
@@ -513,7 +542,7 @@ def st05(cfg):
                 if not has_model(p):
                     raise Skip("no ChromBPNet model (stage 04 skipped)")
                 link_windows(p)
-                run(f"{cfg.py('gpu')} -m motif_cooccurrence.chrombpnet contrib --out {cbp(p)} --sample-dir {p['dir']} "
+                run(f"{cfg.gpu_py()} -m motif_cooccurrence.chrombpnet contrib --out {cbp(p)} --sample-dir {p['dir']} "
                     f"--model {cbp(p) / 'model'} --genome {cfg.genome_dir} --site-index {cfg.out / 'site' / 'index.json'} "
                     f"--shard {k} --nshards {n} --method {C['method']} {C.get('contrib_extra', '')}", log)
             units.append(Unit("05", f"{p['profile']}:{k}", contrib, [cbp(p) / f"contrib.shard{k}.npz"], p["sample"]))
@@ -527,7 +556,7 @@ def st05b(cfg):
             if not has_model(p):
                 raise Skip("no ChromBPNet model")
             try:
-                run(f"{cfg.py('gpu')} -m motif_cooccurrence.chrombpnet modisco --out {cbp(p)} --meme {cfg.meme} --max-seqlets {C['modisco_max_seqlets']}", log)
+                run(f"{cfg.gpu_py(gpu=False)} -m motif_cooccurrence.chrombpnet modisco --out {cbp(p)} --meme {cfg.meme} --max-seqlets {C['modisco_max_seqlets']}", log)
             except RuntimeError:
                 tail = Path(log).read_text()[-4000:]
                 if re.search(r"Sample weights must contain at least one non-zero|No seqlets|zero-size array", tail):
@@ -544,7 +573,7 @@ def st06(cfg):
             def pairs(u, log, p=p, k=k):
                 if not has_model(p):
                     raise Skip("no ChromBPNet model")
-                run(f"{cfg.py('gpu')} -m motif_cooccurrence.chrombpnet pairs --out {cbp(p)} --sample-dir {p['dir']} --model {cbp(p) / 'model'} "
+                run(f"{cfg.gpu_py()} -m motif_cooccurrence.chrombpnet pairs --out {cbp(p)} --sample-dir {p['dir']} --model {cbp(p) / 'model'} "
                     f"--genome {cfg.genome_dir} --shard {k} --nshards {n} {C.get('pairs_extra', '')}", log)
             units.append(Unit("06", f"{p['profile']}:{k}", pairs, [cbp(p) / f"pairs_cbp.shard{k}.json"], p["sample"]))
     return units
@@ -824,10 +853,14 @@ def me(cfg):
 def wr_res(cfg, s, r=None):
     r = r or cfg.res(s); W = cfg.get("runner", "wr")
     a = ["--cpus", str(r["cpus"]), "-m", f"{r['mem']}G", "-t", str(r["time"]), "-r", str(W.get("retries", 2))]
-    if r.get("gpu"):
-        a += ["--queue", W["gpu_queue"], "--misc", W["gpu_misc"]]
-    elif W.get("queue"):
-        a += ["--queue", W["queue"]]
+    if W.get("override"):                       # e.g. 'higher': wr must not shrink our mem/time from learned values
+        a += ["-o", str(W["override"])]
+    q = r.get("queue") or (W.get("gpu_queue") if r.get("gpu") else W.get("queue"))
+    if q:
+        a += ["--queue", str(q)]
+    misc = " ".join(x for x in [W.get("gpu_misc") if r.get("gpu") else "", r.get("misc", "")] if x)
+    if misc:                                    # wr adds -M/-R mem itself; misc is only e.g. -gpu "num=1"
+        a += ["--misc", misc]
     return a
 
 

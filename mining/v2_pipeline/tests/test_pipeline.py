@@ -109,6 +109,17 @@ class TestSafety(unittest.TestCase):
             self.assertNotIn("sbatch", s)
 
 
+    def test_farm22_container_and_gpu_flags(self):
+        c = P.Cfg(P.HERE / "config.farm22.yaml")
+        g = c.gpu_py(); m = c.gpu_py(gpu=False)
+        self.assertIn("apptainer exec --nv -B", g); self.assertIn("chrombpnet.sif python", g)
+        self.assertIn("module load ISG/apptainer/1.4.0", g); self.assertIn("/lustre/scratch126", g)
+        self.assertNotIn("--nv", m)
+        a4 = " ".join(P.wr_res(c, "04")); a5 = " ".join(P.wr_res(c, "05")); a3 = " ".join(P.wr_res(c, "03"))
+        self.assertIn("--queue gpu-basement", a4); self.assertIn('-gpu "num=1"', a4)
+        self.assertIn("--queue gpu ", a5 + " "); self.assertIn("--queue long", a3); self.assertNotIn("-gpu", a3)
+
+
 class TestTargetedRnaLocal(unittest.TestCase):
     def test_local_source_fills_missing_columns(self):
         try:

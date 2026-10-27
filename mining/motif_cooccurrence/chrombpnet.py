@@ -213,10 +213,11 @@ set -euo pipefail
 OUT={out}; mkdir -p $OUT/{{peaks,bias,chrombpnet}}
 GENOME={a.fasta}; SIZES={a.chrom_sizes}; BL={a.blacklist}; FOLD={a.fold}
 # 1. merge replicate fragments (5-col hg38 fragments)
-zcat {frags} | sort -k1,1 -k2,2n -S 4G --parallel=8 | bgzip -@8 > $OUT/fragments.tsv.gz
+zcat {frags} | sort -k1,1 -k2,2n -S 4G --parallel=8 | (command -v bgzip >/dev/null && bgzip -@8 || gzip -c) > $OUT/fragments.tsv.gz
 # 2. MACS3 peaks on Tn5 cut sites (ENCODE ATAC style), blacklist-filtered, top {a.max_peaks}
 zcat $OUT/fragments.tsv.gz | awk 'BEGIN{{OFS="\\t"}}{{print $1,$2,$2+1,"N",".","+"; print $1,$3-1,$3,"N",".","-"}}' > $OUT/peaks/cuts.bed
-macs3 callpeak -t $OUT/peaks/cuts.bed -f BED -n {a.name} -g hs -p 0.01 --shift -75 --extsize 150 --nomodel \\
+MACS=$(command -v macs3 || command -v macs2)   # kundajelab/chrombpnet image ships macs2
+$MACS callpeak -t $OUT/peaks/cuts.bed -f BED -n {a.name} -g hs -p 0.01 --shift -75 --extsize 150 --nomodel \\
   --keep-dup all --call-summits --outdir $OUT/peaks
 bedtools slop -i $BL -g $SIZES -b 1057 > $OUT/peaks/bl_slop.bed
 bedtools intersect -v -a $OUT/peaks/{a.name}_peaks.narrowPeak -b $OUT/peaks/bl_slop.bed | sort -k8,8gr | head -n {a.max_peaks} \\

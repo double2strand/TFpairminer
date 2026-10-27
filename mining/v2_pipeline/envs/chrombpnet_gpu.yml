@@ -1,27 +1,33 @@
-# conda env create -f mining/v2_pipeline/envs/chrombpnet_gpu.yml   -> python.gpu / python.gpu_bin
-# GPU nodes (CUDA 12 driver). Provides chrombpnet + macs3 + bedtools for de-novo training (stage 04) and
-# tensorflow for contributions / ablations (stages 05, 06).  CPU-only variant: replace tensorflow[and-cuda] by tensorflow-cpu.
+# RECOMMENDED INSTEAD: the official image (tested on Sanger farm22, TF 2.8.0 sees the GPU):
+#   apptainer pull containers/chrombpnet.sif docker://kundajelab/chrombpnet:latest
+#   then set chrombpnet.container in the config (see config.farm22.yaml); this env is then not needed.
+#
+# Conda fallback, matching chrombpnet's own pins (tensorflow 2.8.0, numpy 1.23.4, python 3.8, CUDA 11.2/cuDNN 8.1):
+#   conda env create -f mining/v2_pipeline/envs/chrombpnet_gpu.yml   -> python.gpu / python.gpu_bin
+# Not tested end-to-end; the container is the supported path.
 name: tfpm-v2-chrombpnet
 channels: [conda-forge, bioconda]
 dependencies:
-  - python=3.10
-  - numpy=1.26.4
+  - python=3.8
+  - numpy=1.23.4
   - scipy
-  - pandas
+  - pandas<2.1
   - numba
   - h5py
   - pyyaml>=6
-  - anndata>=0.10
+  - cudatoolkit=11.2
+  - cudnn=8.1
   - bedtools
   - samtools
   - tabix
   - ucsc-bedgraphtobigwig
   - ucsc-bedtobigbed
   - ucsc-bigwigtobedgraph
-  - macs3
+  - macs2
   - pip
   - pip:
-      - tensorflow[and-cuda]==2.15.1
+      - tensorflow==2.8.0
+      - protobuf<3.21
       - chrombpnet
       - modisco-lite
       - pyfaidx

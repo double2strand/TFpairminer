@@ -77,7 +77,7 @@ Runtime estimates for the full set (not yet measured on the cluster):
 git clone https://github.com/double2strand/TFpairminer.git && cd TFpairminer
 conda env create -f mining/v2_pipeline/envs/main.yml
 conda env create -f mining/v2_pipeline/envs/rna.yml
-conda env create -f mining/v2_pipeline/envs/chrombpnet_gpu.yml          # on a GPU node / same arch
+conda env create -f mining/v2_pipeline/envs/chrombpnet_gpu.yml          # optional fallback; the container (1b) is recommended
 #  or: apptainer build tfpm_v2.sif mining/v2_pipeline/containers/tfpm_v2.def
 export CONDA_PREFIX_MAIN=$(conda info --base)/envs/tfpm-v2
 export CONDA_PREFIX_RNA=$(conda info --base)/envs/tfpm-v2-rna
@@ -88,6 +88,45 @@ cp mining/v2_pipeline/config.yaml mining/v2_pipeline/config.site.yaml     # edit
 ```
 
 Then check that everything works before running real data.
+
+## 1b. Sanger farm22 (LSF + wr v0.39): the tested path
+
+Base: `/lustre/scratch126/gengen/projects_v2/ncap_selex/tfpm`, with conda prefixes `envs/main` and `envs/rna`.
+ChromBPNet runs from the official image rather than `envs/chrombpnet_gpu.yml`, because chrombpnet pins
+tensorflow 2.8.0 / numpy 1.23.4 / python 3.8.
+
+```bash
+B=/lustre/scratch126/gengen/projects_v2/ncap_selex/tfpm
+module load ISG/apptainer/1.4.0
+apptainer pull $B/containers/chrombpnet.sif docker://kundajelab/chrombpnet:latest
+# GPU check (TF 2.8.0 should list GPU:0):
+bsub -q gpu -gpu "num=1" -M 16000 -R "select[mem>16000] rusage[mem=16000]" -Is \
+  apptainer exec --nv $B/containers/chrombpnet.sif python -c "import tensorflow as tf; print(tf.__version__, tf.config.list_physical_devices('GPU'))"
+cd $B/TFpairminer && git pull
+export TFPM_V2P_PY=$B/envs/main/bin/python          # runs the driver / expanders
+C=mining/v2_pipeline/config.farm22.yaml               # out defaults to $B/v2p_out (override with TFPM_V2P_OUT)
+wr manager start -s lsf
+./tfpm v2 pipeline --config $C dry-run --stage all --runner wr | less
+./tfpm v2 pipeline --config $C run --stage 00-03b --runner wr        # ATAC first; curate context_map.tsv after 02
+./tfpm v2 pipeline --config $C run --stage 04-11 --runner wr
+```
+
+What `config.farm22.yaml` sets up:
+- **ChromBPNet container:** `chrombpnet.container` makes stages 04/05/06 run
+  `module load ISG/apptainer/1.4.0; apptainer exec --nv -B <repo>,<out>,/lustre/scratch126 --env PYTHONPATH=<repo>/mining <sif> python -m motif_cooccurrence.chrombpnet …`.
+  Stage 05b (MoDISco, CPU) uses the same image without `--nv`. De-novo training (`train.sh`) runs inside the image too,
+  using `macs2` if `macs3` is absent and `gzip` if `bgzip` is absent.
+- **Queues:**
+  - CPU stages default to `normal`; 02, 03, 07 and 08 go to `long`.
+  - 05 and 06 go to `gpu`. 04 goes to `gpu-basement`, with a 72 h walltime, because de-novo training is long.
+  - Each stage's queue comes from `resources.<stage>.queue`.
+  - GPU jobs pass `--misc '-gpu "num=1"'` to wr. wr itself turns `-m` into `-M`/`-R rusage[mem]`, so do not put memory in `misc`.
+  - `override: higher` stops wr's learned estimates from going below the configured memory and time.
+- **Expanders:** the expander jobs get no explicit queue, so wr picks one from their walltime.
+- **Extra binds:** if inputs live outside the repo, `out` and `/lustre/scratch126`, add them to `chrombpnet.container_binds`.
+
+Not yet verified on farm22: whether the repo's TFpairminer code runs end-to-end under the image's python 3.8 / TF 2.8
+(it is 3.8-compatible syntax-wise). The first `04` unit is the test: check `OUT/logs/04/<unit>.log`.
 
 ## 2. Smoke test (about 3 minutes, no network, no GPU)
 
