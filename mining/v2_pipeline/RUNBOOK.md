@@ -175,9 +175,9 @@ For a dry publish, set `publish.dir: /lustre/.../portal_preview/data` and serve 
   `wr remove -i tfpm-v2-exp-<stage>` (and the later expanders) and `run --stage <stage>-11 --runner wr` again.
 - **wr manager slow, unresponsive or database bloated** (hundreds of thousands of completed jobs in the history):
   1. Check that nothing is running: `wr status -o s`.
-  2. Run `wr manager stop`.
-  3. Move the manager database aside (`~/.wr_production/db` and `db_bk`; this keeps the old history as a backup).
-  4. Run `wr manager start` again with your usual flags.
+  2. Run `wr manager stop`, then `wr manager compact`, then `wr manager start` (the fix that worked on this cluster).
+  3. Only if compaction fails: stop the manager, move `~/.wr_production/db` and `db_bk` aside as a backup, and start it again.
+  4. Check with `wr status`.
   5. Re-run `./tfpm v2 pipeline … run --stage all --runner wr`.
   
   This is safe because the pipeline's state lives in `OUT/state`, not in wr. Finished units are skipped and only the
