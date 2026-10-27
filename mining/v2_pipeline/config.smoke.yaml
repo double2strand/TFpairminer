@@ -1,0 +1,66 @@
+# Smoke config: synthetic data from smoke/make_smoke.py, all stages locally in minutes.  Usage:
+#   python mining/v2_pipeline/smoke/make_smoke.py --out $TFPM_V2P_SMOKE/data
+#   ./tfpm v2 pipeline --config mining/v2_pipeline/config.smoke.yaml run --stage all --runner local
+out: ${TFPM_V2P_SMOKE:-/tmp/tfpm_v2p_smoke}/out
+manifest: ${TFPM_V2P_SMOKE:-/tmp/tfpm_v2p_smoke}/data/samples.tsv
+context_map: ${TFPM_V2P_SMOKE:-/tmp/tfpm_v2p_smoke}/data/context_map.tsv
+only: []
+python:
+  main: ${TFPM_PY_MAIN:-python3}
+  rna: ${TFPM_PY_RNA:-python3}
+  gpu: ${TFPM_PY_GPU:-python3}
+  gpu_bin: ""
+refs:
+  genome_fasta_url: ${TFPM_V2P_SMOKE:-/tmp/tfpm_v2p_smoke}/data/genome.fa.gz
+  genome_md5_url: ""
+  chrom_sizes_url: ""
+  jaspar_meme: mining/motif_cooccurrence/resources/JASPAR2024_CORE_vertebrates_non-redundant_pfms_meme.txt
+  blacklist: ${TFPM_V2P_SMOKE:-/tmp/tfpm_v2p_smoke}/data/blacklist.bed.gz
+  chroms: [chr21, chr22]
+  fold: {test: [chr21], valid: [chr22]}
+motifs: {window_bp: 300, max_windows: 2000, min_cuts: 6, min_rep_cuts: 2, min_cells: 100, motif_pvalue: 1.0e-4,
+         permutations: 99, q: 0.05, min_lift: 1.25}
+chrombpnet:
+  pretrained: manifest
+  force_pretrained: ${TFPM_V2P_SMOKE:-/tmp/tfpm_v2p_smoke}/data/smoke.chrombpnet_nobias.h5
+  max_peaks: 1000
+  bias_model: ""
+  min_fragments: 1000
+  contrib_shards: 2
+  pairs_shards: 2
+  method: ig
+  contrib_extra: "--n-top 40 --per-candidate 10 --steps 4"
+  pairs_extra: "--min-windows 4 --ablate-windows 10 --seeds 1 --site-pct 0.75"
+  modisco_max_seqlets: 2000
+rna:
+  census_version: "2025-11-08"
+  tabula_dataset_id: 53d208b0-2cfd-4366-9866-c3c6114081bc
+  local_h5ad: ${TFPM_V2P_SMOKE:-/tmp/tfpm_v2p_smoke}/data/rna_census_like.h5ad
+  thresholds: "--min-cells 50 --min-detection 0.05 --min-rho 0.1 --min-lift 1.05 --min-codetected 10 --max-q 0.2"
+  strict: {enabled: false, shards: 2}
+publish:
+  dir: ${TFPM_V2P_SMOKE:-/tmp/tfpm_v2p_smoke}/out/publish/data
+  commit: false
+runner:
+  local: {cpus: 8, mem_gb: 14, gpus: 0}
+  wr: {rep_prefix: tfpm-v2-smoke, queue: "", gpu_queue: "", gpu_misc: "", retries: 0, poll_seconds: 10}
+resources:
+  "00": {cpus: 1, mem: 1, time: 10m}
+  "01": {cpus: 1, mem: 1, time: 10m}
+  "02": {cpus: 1, mem: 2, time: 10m}
+  "03": {cpus: 2, mem: 2, time: 30m}
+  "03b": {cpus: 1, mem: 2, time: 10m}
+  "04": {cpus: 1, mem: 2, time: 10m}
+  "05": {cpus: 2, mem: 3, time: 30m}
+  "05b": {cpus: 2, mem: 3, time: 30m}
+  "06": {cpus: 2, mem: 3, time: 30m}
+  "06b": {cpus: 1, mem: 1, time: 10m}
+  "07a": {cpus: 1, mem: 2, time: 10m}
+  "07": {cpus: 1, mem: 2, time: 10m}
+  "07b": {cpus: 1, mem: 2, time: 10m}
+  "08a": {cpus: 1, mem: 2, time: 10m}
+  "08": {cpus: 1, mem: 2, time: 10m}
+  "08b": {cpus: 1, mem: 2, time: 10m}
+  "09": {cpus: 1, mem: 2, time: 10m}
+  "10": {cpus: 1, mem: 2, time: 10m}
+  "11": {cpus: 1, mem: 1, time: 10m}

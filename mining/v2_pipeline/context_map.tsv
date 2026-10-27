@@ -1,0 +1,61 @@
+match_on	pattern	sample_pattern	rna_context	cl_ids	tissue_id	disease_id	mapping_level	note
+profile	CCLA_HepG2		hepatocyte	CL:0000182,CL:0019026,CL:0019028,CL:0019029	UBERON:0002107	PATO:0000461	proxy	HepG2 hepatoblastoma line -> normal hepatocytes
+profile	CCLA_Huh7		hepatocyte	CL:0000182,CL:0019026,CL:0019028,CL:0019029	UBERON:0002107	PATO:0000461	proxy	Huh7 HCC line -> normal hepatocytes
+profile	CCLA_K562		erythroid_myeloid_progenitor	CL:0000038,CL:0000049,CL:0000050,CL:0000547,CL:0000549,CL:0000550,CL:0000552,CL:0000764,CL:0000765,CL:0001066	UBERON:0002371	PATO:0000461	proxy	K562 CML erythroleukemia line -> normal erythroid/MEP/CMP progenitors
+profile	CCLA_.*						unmapped	other cancer lines: no defensible normal RNA context (curate to add)
+celltype	K562.*|.*cell[ _]line.*						unmapped	cell-line populations inside the Corpus
+celltype	Hepatocytes?		hepatocyte	CL:0000182		PATO:0000461	exact	Corpus cell type == hepatocyte (normal tissue)
+celltype	T[ _]?cells?		T_cell	CL:0000084		PATO:0000461	exact	Corpus cell type == T_cell (normal tissue)
+celltype	CD4.*T.*|T.*CD4.*		CD4_T	CL:0000624		PATO:0000461	exact	Corpus cell type == CD4_T (normal tissue)
+celltype	CD8.*T.*|T.*CD8.*		CD8_T	CL:0000625		PATO:0000461	exact	Corpus cell type == CD8_T (normal tissue)
+celltype	NK([ _]cells?)?|Natural[ _]killer.*		NK	CL:0000623		PATO:0000461	exact	Corpus cell type == NK (normal tissue)
+celltype	B[ _]?cells?		B_cell	CL:0000236		PATO:0000461	exact	Corpus cell type == B_cell (normal tissue)
+celltype	Plasma[ _]cells?		plasma_cell	CL:0000786		PATO:0000461	exact	Corpus cell type == plasma_cell (normal tissue)
+celltype	Monocytes?		monocyte	CL:0000576		PATO:0000461	exact	Corpus cell type == monocyte (normal tissue)
+celltype	Macrophages?		macrophage	CL:0000235		PATO:0000461	exact	Corpus cell type == macrophage (normal tissue)
+celltype	Dendritic[ _]cells?		dendritic_cell	CL:0000451		PATO:0000461	exact	Corpus cell type == dendritic_cell (normal tissue)
+celltype	Mast[ _]cells?		mast_cell	CL:0000097		PATO:0000461	exact	Corpus cell type == mast_cell (normal tissue)
+celltype	Erythroblasts?		erythroblast	CL:0000765		PATO:0000461	exact	Corpus cell type == erythroblast (normal tissue)
+celltype	Endothelial([ _]cells?)?		endothelial	CL:0000115		PATO:0000461	exact	Corpus cell type == endothelial (normal tissue)
+celltype	Fibroblasts?		fibroblast	CL:0000057		PATO:0000461	exact	Corpus cell type == fibroblast (normal tissue)
+celltype	Cardiomyocytes?		cardiomyocyte	CL:0000746		PATO:0000461	exact	Corpus cell type == cardiomyocyte (normal tissue)
+celltype	Adipocytes?		adipocyte	CL:0000136		PATO:0000461	exact	Corpus cell type == adipocyte (normal tissue)
+celltype	Smooth[ _]muscle([ _]cells?)?		smooth_muscle	CL:0000192		PATO:0000461	exact	Corpus cell type == smooth_muscle (normal tissue)
+celltype	Pericytes?		pericyte	CL:0000669		PATO:0000461	exact	Corpus cell type == pericyte (normal tissue)
+celltype	Keratinocytes?		keratinocyte	CL:0000312		PATO:0000461	exact	Corpus cell type == keratinocyte (normal tissue)
+celltype	Astrocytes?		astrocyte	CL:0000127		PATO:0000461	exact	Corpus cell type == astrocyte (normal tissue)
+celltype	Oligodendrocytes?		oligodendrocyte	CL:0000128		PATO:0000461	exact	Corpus cell type == oligodendrocyte (normal tissue)
+celltype	Microglia		microglia	CL:0000129		PATO:0000461	exact	Corpus cell type == microglia (normal tissue)
+celltype	Acinar([ _]cells?)?		acinar	CL:0002064		PATO:0000461	exact	Corpus cell type == acinar (normal tissue)
+celltype	Beta([ _]cells?)?		beta_cell	CL:0000169		PATO:0000461	exact	Corpus cell type == beta_cell (normal tissue)
+celltype	Alpha([ _]cells?)?		alpha_cell	CL:0000171		PATO:0000461	exact	Corpus cell type == alpha_cell (normal tissue)
+celltype	Enterocytes?		enterocyte	CL:0000584		PATO:0000461	exact	Corpus cell type == enterocyte (normal tissue)
+celltype	Goblet([ _]cells?)?		goblet	CL:0000160		PATO:0000461	exact	Corpus cell type == goblet (normal tissue)
+celltype	(Hepatocytes?)[ _].+		hepatocyte	CL:0000182		PATO:0000461	proxy	Corpus sub-labelled hepatocyte (e.g. tissue-qualified) -> hepatocyte
+celltype	(T[ _]?cells?)[ _].+		T_cell	CL:0000084		PATO:0000461	proxy	Corpus sub-labelled T_cell (e.g. tissue-qualified) -> T_cell
+celltype	(CD4.*T.*|T.*CD4.*)[ _].+		CD4_T	CL:0000624		PATO:0000461	proxy	Corpus sub-labelled CD4_T (e.g. tissue-qualified) -> CD4_T
+celltype	(CD8.*T.*|T.*CD8.*)[ _].+		CD8_T	CL:0000625		PATO:0000461	proxy	Corpus sub-labelled CD8_T (e.g. tissue-qualified) -> CD8_T
+celltype	(NK([ _]cells?)?|Natural[ _]killer.*)[ _].+		NK	CL:0000623		PATO:0000461	proxy	Corpus sub-labelled NK (e.g. tissue-qualified) -> NK
+celltype	(B[ _]?cells?)[ _].+		B_cell	CL:0000236		PATO:0000461	proxy	Corpus sub-labelled B_cell (e.g. tissue-qualified) -> B_cell
+celltype	(Plasma[ _]cells?)[ _].+		plasma_cell	CL:0000786		PATO:0000461	proxy	Corpus sub-labelled plasma_cell (e.g. tissue-qualified) -> plasma_cell
+celltype	(Monocytes?)[ _].+		monocyte	CL:0000576		PATO:0000461	proxy	Corpus sub-labelled monocyte (e.g. tissue-qualified) -> monocyte
+celltype	(Macrophages?)[ _].+		macrophage	CL:0000235		PATO:0000461	proxy	Corpus sub-labelled macrophage (e.g. tissue-qualified) -> macrophage
+celltype	(Dendritic[ _]cells?)[ _].+		dendritic_cell	CL:0000451		PATO:0000461	proxy	Corpus sub-labelled dendritic_cell (e.g. tissue-qualified) -> dendritic_cell
+celltype	(Mast[ _]cells?)[ _].+		mast_cell	CL:0000097		PATO:0000461	proxy	Corpus sub-labelled mast_cell (e.g. tissue-qualified) -> mast_cell
+celltype	(Erythroblasts?)[ _].+		erythroblast	CL:0000765		PATO:0000461	proxy	Corpus sub-labelled erythroblast (e.g. tissue-qualified) -> erythroblast
+celltype	(Endothelial([ _]cells?)?)[ _].+		endothelial	CL:0000115		PATO:0000461	proxy	Corpus sub-labelled endothelial (e.g. tissue-qualified) -> endothelial
+celltype	(Fibroblasts?)[ _].+		fibroblast	CL:0000057		PATO:0000461	proxy	Corpus sub-labelled fibroblast (e.g. tissue-qualified) -> fibroblast
+celltype	(Cardiomyocytes?)[ _].+		cardiomyocyte	CL:0000746		PATO:0000461	proxy	Corpus sub-labelled cardiomyocyte (e.g. tissue-qualified) -> cardiomyocyte
+celltype	(Adipocytes?)[ _].+		adipocyte	CL:0000136		PATO:0000461	proxy	Corpus sub-labelled adipocyte (e.g. tissue-qualified) -> adipocyte
+celltype	(Smooth[ _]muscle([ _]cells?)?)[ _].+		smooth_muscle	CL:0000192		PATO:0000461	proxy	Corpus sub-labelled smooth_muscle (e.g. tissue-qualified) -> smooth_muscle
+celltype	(Pericytes?)[ _].+		pericyte	CL:0000669		PATO:0000461	proxy	Corpus sub-labelled pericyte (e.g. tissue-qualified) -> pericyte
+celltype	(Keratinocytes?)[ _].+		keratinocyte	CL:0000312		PATO:0000461	proxy	Corpus sub-labelled keratinocyte (e.g. tissue-qualified) -> keratinocyte
+celltype	(Astrocytes?)[ _].+		astrocyte	CL:0000127		PATO:0000461	proxy	Corpus sub-labelled astrocyte (e.g. tissue-qualified) -> astrocyte
+celltype	(Oligodendrocytes?)[ _].+		oligodendrocyte	CL:0000128		PATO:0000461	proxy	Corpus sub-labelled oligodendrocyte (e.g. tissue-qualified) -> oligodendrocyte
+celltype	(Microglia)[ _].+		microglia	CL:0000129		PATO:0000461	proxy	Corpus sub-labelled microglia (e.g. tissue-qualified) -> microglia
+celltype	(Acinar([ _]cells?)?)[ _].+		acinar	CL:0002064		PATO:0000461	proxy	Corpus sub-labelled acinar (e.g. tissue-qualified) -> acinar
+celltype	(Beta([ _]cells?)?)[ _].+		beta_cell	CL:0000169		PATO:0000461	proxy	Corpus sub-labelled beta_cell (e.g. tissue-qualified) -> beta_cell
+celltype	(Alpha([ _]cells?)?)[ _].+		alpha_cell	CL:0000171		PATO:0000461	proxy	Corpus sub-labelled alpha_cell (e.g. tissue-qualified) -> alpha_cell
+celltype	(Enterocytes?)[ _].+		enterocyte	CL:0000584		PATO:0000461	proxy	Corpus sub-labelled enterocyte (e.g. tissue-qualified) -> enterocyte
+celltype	(Goblet([ _]cells?)?)[ _].+		goblet	CL:0000160		PATO:0000461	proxy	Corpus sub-labelled goblet (e.g. tissue-qualified) -> goblet
+celltype	.*						unmapped	default: curate in context_map.tsv (see qc/unmapped_celltypes)

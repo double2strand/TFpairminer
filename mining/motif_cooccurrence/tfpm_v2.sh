@@ -18,6 +18,10 @@ VENV="${TFPM_V2_VENV:-$ROOT/.venv_v2}"; PY="$VENV/bin/python"
 die(){ echo "tfpm v2: $*" >&2; exit 1; }
 usage(){ cat <<U
 Usage: tfpm v2 <command>
+  pipeline [--config F] <run|resume|dry-run> --stage N|all --runner wr|local [--only ID] [--force]
+           pipeline status | stages
+                             systematic cluster pipeline, stages 00-11 (all CCLA lines + all Corpus samples ->
+                             portal data); see mining/v2_pipeline/RUNBOOK.md. Python: TFPM_V2P_PY or $VENV
   setup                      create $VENV, install requirements, run tests
   discover                   fetch hg38 + build 2-bit-like code arrays; check every manifest input is reachable
   run --runner wr|local [--parallel N] [--only ID[,ID]] [-- extra 'sample' flags, e.g. --max-windows 40000]
@@ -183,5 +187,7 @@ cmd_evidence(){
 case "${1:-}" in
   setup) shift; cmd_setup "$@";; discover) cmd_discover;; run) shift; cmd_run "$@";; status) cmd_status;;
   aggregate) cmd_aggregate;; publish) shift; cmd_publish "$@";; chrombpnet) shift; cmd_chrombpnet "$@";;
-  evidence) shift; cmd_evidence "$@";; *) usage;;
+  evidence) shift; cmd_evidence "$@";;
+  pipeline) shift; P2="${TFPM_V2P_PY:-$PY}"; [ -x "$P2" ] || P2=python3
+            exec "$P2" "$ROOT/mining/v2_pipeline/pipeline.py" "$@";; *) usage;;
 esac

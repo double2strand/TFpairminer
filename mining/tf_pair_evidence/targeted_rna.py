@@ -54,11 +54,91 @@ def candidate_pairs(paths, sym2id):
     return pairs, rejects
 
 
+class _CensusSource:
+    def __init__(self, a):
+        self.a = a; self.cc = tc.census_module()
+
+    def __enter__(self):
+        self._ctx = self.cc.open_soma(census_version=self.a.census_version); self.census = self._ctx.__enter__()
+        self.hs = self.census["census_data"]["homo_sapiens"]; return self
+
+    def __exit__(self, *exc):
+        return self._ctx.__exit__(*exc)
+
+    def datasets(self):
+        return self.census["census_info"]["datasets"].read().concat().to_pandas()
+
+    def var(self):
+        return self.hs.ms["RNA"].var.read(column_names=["soma_joinid", "feature_id"]).concat().to_pandas()
+
+    def obs(self, filt, cols):
+        return self.hs.obs.read(value_filter=filt, column_names=cols).concat().to_pandas()
+
+    def anndata(self, obs_ids, var_ids):
+        return self.cc.get_anndata(self.census, organism="Homo sapiens", measurement_name="RNA", X_name="raw",
+                                   obs_coords=obs_ids, var_coords=var_ids,
+                                   obs_column_names=["soma_joinid"], var_column_names=["soma_joinid"])
+
+
+class _LocalSource:
+    """Same interface as _CensusSource over one local h5ad (used by the v2 pipeline smoke test)."""
+    def __init__(self, a):
+        import anndata
+        self.ad = anndata.read_h5ad(a.local_h5ad); self.census = None
+        o = self.ad.obs.copy(); o["soma_joinid"] = np.arange(self.ad.n_obs, dtype=np.int64)
+        if "raw_sum" not in o:
+            o["raw_sum"] = np.asarray(self.ad.X.sum(1)).ravel()
+        for c in ("is_primary_data",):
+            o[c] = o[c].astype(bool) if c in o else True
+        self.o = o
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def datasets(self):
+        import pandas as pd
+        cols = [c for c in ("dataset_id", "collection_name", "dataset_title") if c in self.o]
+        return pd.DataFrame(self.o[cols].astype(str).drop_duplicates("dataset_id").reset_index(drop=True))
+
+    def var(self):
+        import pandas as pd
+        fid = self.ad.var["feature_id"] if "feature_id" in self.ad.var else self.ad.var_names
+        return pd.DataFrame({"soma_joinid": np.arange(self.ad.n_vars, dtype=np.int64), "feature_id": np.asarray(fid, dtype=str)})
+
+    def obs(self, filt, cols):
+        o = self.o.copy()
+        for c in o.columns:
+            if str(o[c].dtype) == "category":
+                o[c] = o[c].astype(str)
+        for c in cols:   # optional Census columns absent from a local file are filled with ""
+            if c not in o.columns:
+                o[c] = ""
+        return o.query(filt.replace(" and ", " & "), engine="python")[cols].reset_index(drop=True)
+
+    def anndata(self, obs_ids, var_ids):
+        import anndata
+        import pandas as pd
+        sub = self.ad[obs_ids][:, var_ids]
+        return anndata.AnnData(X=sub.X, obs=pd.DataFrame({"soma_joinid": obs_ids}, index=[str(i) for i in obs_ids]),
+                               var=pd.DataFrame({"soma_joinid": var_ids}, index=[str(i) for i in var_ids]))
+
+
+def open_source(a):
+    return _LocalSource(a) if a.local_h5ad else _CensusSource(a)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pairs-cbp", nargs="+", required=True)
     ap.add_argument("--register", required=True)
-    ap.add_argument("--context", choices=sorted(CONTEXTS), required=True)
+    ap.add_argument("--context", required=True, help=f"built-in: {sorted(CONTEXTS)}; or any name with --cl-ids")
+    ap.add_argument("--cl-ids", default="", help="comma CL ids defining a custom RNA context (overrides built-ins)")
+    ap.add_argument("--context-label", default="", help="mapping label for a custom context (e.g. 'exact: ...')")
+    ap.add_argument("--local-h5ad", default="", help="test/offline mode: a CELLxGENE-schema h5ad (raw counts in X, "
+                    "obs has Census columns + collection_name/dataset_title) used instead of the Census")
     ap.add_argument("--screen", choices=["cellxgene", "tabula"], required=True)
     ap.add_argument("--census-version", default="2025-11-08")
     ap.add_argument("--tabula-dataset-id", default="53d208b0-2cfd-4366-9866-c3c6114081bc")
@@ -83,16 +163,20 @@ def main():
             reg[gid] = row["Symbol"]; sym2id.setdefault(row["Symbol"].upper(), gid)
     pairs, rejects = candidate_pairs(a.pairs_cbp, sym2id)
     genes = sorted({g for p in pairs for g in p})
-    label, cl_ids = CONTEXTS[a.context]
-    cc = tc.census_module()
-    with cc.open_soma(census_version=a.census_version) as census:
-        hs = census["census_data"]["homo_sapiens"]
-        ds = census["census_info"]["datasets"].read().concat().to_pandas()
+    if a.cl_ids:
+        label, cl_ids = a.context_label or f"{a.context}: {a.cl_ids}", [c for c in a.cl_ids.split(",") if c]
+    elif a.context in CONTEXTS:
+        label, cl_ids = CONTEXTS[a.context]
+    else:
+        raise SystemExit(f"unknown --context {a.context}; pass --cl-ids (comma CL ids) for a custom context")
+    with open_source(a) as src:
+        census = src.census
+        ds = src.datasets()
         ts_ids = set(ds[ds.collection_name.str.contains("Tabula Sapiens", case=False)].dataset_id)
         if a.screen == "tabula":
             if a.tabula_dataset_id not in set(ds.dataset_id):
                 raise SystemExit("Tabula dataset id not in this Census release")
-        var = hs.ms["RNA"].var.read(column_names=["soma_joinid", "feature_id"]).concat().to_pandas()
+        var = src.var()
         var["gid"] = var.feature_id.str.split(".").str[0]
         var = var[var.gid.isin(genes)]
         feats = [{"ensembl_id": r.gid, "symbol": reg[r.gid], "hgnc_id": "", "category": "", "is_tf": True,
@@ -106,13 +190,13 @@ def main():
             filt += f" and dataset_id == '{a.tabula_dataset_id}'"
         cols = ["soma_joinid", "dataset_id", "cell_type_ontology_term_id", "cell_type", "tissue_general_ontology_term_id",
                 "tissue_general", "assay_ontology_term_id", "assay", "donor_id", "raw_sum"]
-        obs = hs.obs.read(value_filter=filt, column_names=cols).concat().to_pandas()
+        obs = src.obs(filt, cols)
         if a.screen == "cellxgene":
             obs = obs[~obs.dataset_id.isin(ts_ids)]
         obs = obs[obs.raw_sum > 0]
         meta = ds.set_index("dataset_id")
         manifest = {"screen": a.screen, "context": a.context, "mapping": label, "cl_ids": cl_ids,
-                    "census_version": a.census_version, "filter": filt,
+                    "census_version": a.census_version if not a.local_h5ad else f"local:{a.local_h5ad}", "filter": filt,
                     "excluded_tabula_datasets": len(ts_ids) if a.screen == "cellxgene" else 0,
                     "n_cells": int(len(obs)), "n_datasets": int(obs.dataset_id.nunique()),
                     "n_candidate_pairs": len(pairs), "n_genes_in_census": len(feats), "rejected_labels": rejects,
@@ -135,9 +219,7 @@ def main():
             g = g.sort_values("soma_joinid")
             for s in range(0, len(g), a.batch_size):
                 b = g.iloc[s:s + a.batch_size]
-                ad = cc.get_anndata(census, organism="Homo sapiens", measurement_name="RNA", X_name="raw",
-                                    obs_coords=b.soma_joinid.to_numpy(np.int64), var_coords=fids,
-                                    obs_column_names=["soma_joinid"], var_column_names=["soma_joinid"])
+                ad = src.anndata(b.soma_joinid.to_numpy(np.int64), fids)
                 opos = {int(j): i for i, j in enumerate(ad.obs.soma_joinid)}
                 vpos = {int(j): i for i, j in enumerate(ad.var.soma_joinid)}
                 x = ad.X[[opos[int(j)] for j in b.soma_joinid]][:, [vpos[int(j)] for j in fids]]

@@ -1,0 +1,24 @@
+# Apptainer image with all three envs:  apptainer build tfpm_v2.sif mining/v2_pipeline/containers/tfpm_v2.def
+# Use on a GPU node with --nv.  Then point config python.* at /opt/conda/envs/<env>/bin/python, e.g.
+#   CONDA_PREFIX_MAIN=/opt/conda/envs/tfpm-v2 ... and prefix wr commands with 'apptainer exec --nv -B /lustre tfpm_v2.sif'
+Bootstrap: docker
+From: condaforge/miniforge3:24.9.2-0
+
+%files
+    mining/v2_pipeline/envs /opt/envs
+
+%post
+    set -e
+    mamba env create -y -f /opt/envs/main.yml
+    mamba env create -y -f /opt/envs/rna.yml
+    mamba env create -y -f /opt/envs/chrombpnet_gpu.yml
+    mamba clean -afy
+
+%environment
+    export CONDA_PREFIX_MAIN=/opt/conda/envs/tfpm-v2
+    export CONDA_PREFIX_RNA=/opt/conda/envs/tfpm-v2-rna
+    export CONDA_PREFIX_GPU=/opt/conda/envs/tfpm-v2-chrombpnet
+    export PATH=/opt/conda/envs/tfpm-v2/bin:$PATH
+
+%runscript
+    exec /opt/conda/envs/tfpm-v2/bin/python "$@"
