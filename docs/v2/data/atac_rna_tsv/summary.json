@@ -1,0 +1,486 @@
+{
+ "counts": {
+  "atac_only": {
+   "CCLA_HepG2": 8,
+   "CCLA_K562": 5
+  },
+  "atac_rna1": {
+   "CCLA_HepG2": 0,
+   "CCLA_K562": 0
+  },
+  "atac_rna2": {
+   "CCLA_HepG2": 0,
+   "CCLA_K562": 0
+  },
+  "rna_only": {
+   "CCLA_HepG2": 0,
+   "CCLA_K562": 0
+  }
+ },
+ "master_rows": 342,
+ "n_modules": 2,
+ "lines": [
+  {
+   "atac_dataset": "CCLA_HepG2",
+   "atac_context": "hepatocyte",
+   "pairs_cbp": "/workspace/tfpm_v2/v2run/out/samples/CCLA_HepG2/chrombpnet/pairs_cbp.tsv",
+   "rna1": {
+    "screen": "cellxgene",
+    "context": "hepatocyte",
+    "mapping": "proxy: HepG2 (hepatoblastoma line) -> normal hepatocytes",
+    "cl_ids": [
+     "CL:0000182",
+     "CL:0019026",
+     "CL:0019028",
+     "CL:0019029"
+    ],
+    "census_version": "2025-11-08",
+    "filter": "is_primary_data == True and cell_type_ontology_term_id in ['CL:0000182', 'CL:0019026', 'CL:0019028', 'CL:0019029'] and disease_ontology_term_id == 'PATO:0000461'",
+    "excluded_tabula_datasets": 35,
+    "n_cells": 144268,
+    "n_datasets": 11,
+    "n_candidate_pairs": 154,
+    "n_genes_in_census": 176,
+    "rejected_labels": [
+     [
+      "ELK1::SREBF2+ZBED1",
+      "composite_motif_label"
+     ],
+     [
+      "ZNF669+NR1H4::RXRA",
+      "composite_motif_label"
+     ],
+     [
+      "FOSL1::JUN+CEBPB",
+      "composite_motif_label"
+     ],
+     [
+      "PROX1+FOSL1::JUN",
+      "composite_motif_label"
+     ],
+     [
+      "PROX1+FOSL2::JUND",
+      "composite_motif_label"
+     ],
+     [
+      "FOSB::JUNB+CEBPB",
+      "composite_motif_label"
+     ],
+     [
+      "PROX1+FOSL2::JUN",
+      "composite_motif_label"
+     ],
+     [
+      "ZNF143+Stat5a::Stat5b",
+      "composite_motif_label"
+     ],
+     [
+      "mix-a+HMBOX1",
+      "symbol_not_in_register"
+     ],
+     [
+      "HSF4+Stat5a::Stat5b",
+      "composite_motif_label"
+     ],
+     [
+      "ETV2::FOXI1+IRF4",
+      "composite_motif_label"
+     ],
+     [
+      "TFAP4::ETV1+ZNF93",
+      "composite_motif_label"
+     ],
+     [
+      "PRDM9+Pparg::Rxra",
+      "composite_motif_label"
+     ],
+     [
+      "EWSR1-FLI1+ETV5::FOXI1",
+      "composite_motif_label"
+     ],
+     [
+      "FOSL1::JUN+PPARG",
+      "composite_motif_label"
+     ],
+     [
+      "FOXO1::ELK3+Zic1::Zic2",
+      "composite_motif_label"
+     ],
+     [
+      "PROX1+FOSL1::JUND",
+      "composite_motif_label"
+     ],
+     [
+      "Thap11+ELK1::HOXB13",
+      "composite_motif_label"
+     ],
+     [
+      "Arid3b+Dux+Nobox",
+      "symbol_not_in_register"
+     ],
+     [
+      "Arid3b+Arid5a+Dux",
+      "symbol_not_in_register"
+     ],
+     [
+      "Arid3b+Dux+ZNF35",
+      "symbol_not_in_register"
+     ],
+     [
+      "THAP1+ZNF549+Zic1::Zic2",
+      "composite_motif_label"
+     ]
+    ],
+    "datasets": 11,
+    "thresholds": {
+     "min_cells": 100,
+     "min_detection": 0.05,
+     "min_rho": 0.25,
+     "min_lift": 1.1,
+     "min_codetected": 25,
+     "max_q": 0.05,
+     "metacell_size": 20
+    }
+   },
+   "rna2": {
+    "screen": "tabula",
+    "context": "hepatocyte",
+    "mapping": "proxy: HepG2 (hepatoblastoma line) -> normal hepatocytes",
+    "cl_ids": [
+     "CL:0000182",
+     "CL:0019026",
+     "CL:0019028",
+     "CL:0019029"
+    ],
+    "census_version": "2025-11-08",
+    "filter": "is_primary_data == True and cell_type_ontology_term_id in ['CL:0000182', 'CL:0019026', 'CL:0019028', 'CL:0019029'] and disease_ontology_term_id == 'PATO:0000461' and dataset_id == '53d208b0-2cfd-4366-9866-c3c6114081bc'",
+    "excluded_tabula_datasets": 0,
+    "n_cells": 7414,
+    "n_datasets": 1,
+    "n_candidate_pairs": 154,
+    "n_genes_in_census": 176,
+    "rejected_labels": [
+     [
+      "ELK1::SREBF2+ZBED1",
+      "composite_motif_label"
+     ],
+     [
+      "ZNF669+NR1H4::RXRA",
+      "composite_motif_label"
+     ],
+     [
+      "FOSL1::JUN+CEBPB",
+      "composite_motif_label"
+     ],
+     [
+      "PROX1+FOSL1::JUN",
+      "composite_motif_label"
+     ],
+     [
+      "PROX1+FOSL2::JUND",
+      "composite_motif_label"
+     ],
+     [
+      "FOSB::JUNB+CEBPB",
+      "composite_motif_label"
+     ],
+     [
+      "PROX1+FOSL2::JUN",
+      "composite_motif_label"
+     ],
+     [
+      "ZNF143+Stat5a::Stat5b",
+      "composite_motif_label"
+     ],
+     [
+      "mix-a+HMBOX1",
+      "symbol_not_in_register"
+     ],
+     [
+      "HSF4+Stat5a::Stat5b",
+      "composite_motif_label"
+     ],
+     [
+      "ETV2::FOXI1+IRF4",
+      "composite_motif_label"
+     ],
+     [
+      "TFAP4::ETV1+ZNF93",
+      "composite_motif_label"
+     ],
+     [
+      "PRDM9+Pparg::Rxra",
+      "composite_motif_label"
+     ],
+     [
+      "EWSR1-FLI1+ETV5::FOXI1",
+      "composite_motif_label"
+     ],
+     [
+      "FOSL1::JUN+PPARG",
+      "composite_motif_label"
+     ],
+     [
+      "FOXO1::ELK3+Zic1::Zic2",
+      "composite_motif_label"
+     ],
+     [
+      "PROX1+FOSL1::JUND",
+      "composite_motif_label"
+     ],
+     [
+      "Thap11+ELK1::HOXB13",
+      "composite_motif_label"
+     ],
+     [
+      "Arid3b+Dux+Nobox",
+      "symbol_not_in_register"
+     ],
+     [
+      "Arid3b+Arid5a+Dux",
+      "symbol_not_in_register"
+     ],
+     [
+      "Arid3b+Dux+ZNF35",
+      "symbol_not_in_register"
+     ],
+     [
+      "THAP1+ZNF549+Zic1::Zic2",
+      "composite_motif_label"
+     ]
+    ],
+    "datasets": 1,
+    "thresholds": {
+     "min_cells": 100,
+     "min_detection": 0.05,
+     "min_rho": 0.25,
+     "min_lift": 1.1,
+     "min_codetected": 25,
+     "max_q": 0.05,
+     "metacell_size": 20
+    }
+   }
+  },
+  {
+   "atac_dataset": "CCLA_K562",
+   "atac_context": "erythroid_myeloid_progenitor",
+   "pairs_cbp": "/workspace/tfpm_v2/v2run/out/samples/CCLA_K562/chrombpnet/pairs_cbp.tsv",
+   "rna1": {
+    "screen": "cellxgene",
+    "context": "erythroid_myeloid_progenitor",
+    "mapping": "proxy: K562 (CML erythroleukemia line) -> normal erythroid/MEP/CMP progenitors",
+    "cl_ids": [
+     "CL:0000038",
+     "CL:0000049",
+     "CL:0000050",
+     "CL:0000547",
+     "CL:0000549",
+     "CL:0000550",
+     "CL:0000552",
+     "CL:0000764",
+     "CL:0000765",
+     "CL:0001066"
+    ],
+    "census_version": "2025-11-08",
+    "filter": "is_primary_data == True and cell_type_ontology_term_id in ['CL:0000038', 'CL:0000049', 'CL:0000050', 'CL:0000547', 'CL:0000549', 'CL:0000550', 'CL:0000552', 'CL:0000764', 'CL:0000765', 'CL:0001066'] and disease_ontology_term_id == 'PATO:0000461'",
+    "excluded_tabula_datasets": 35,
+    "n_cells": 179793,
+    "n_datasets": 40,
+    "n_candidate_pairs": 160,
+    "n_genes_in_census": 187,
+    "rejected_labels": [
+     [
+      "ZNF669+NR1H4::RXRA",
+      "composite_motif_label"
+     ],
+     [
+      "TFCP2+Hand1::Tcf3",
+      "composite_motif_label"
+     ],
+     [
+      "ELK1::SREBF2+ZBED1",
+      "composite_motif_label"
+     ],
+     [
+      "ZNF143+Stat5a::Stat5b",
+      "composite_motif_label"
+     ],
+     [
+      "mix-a+HMBOX1",
+      "symbol_not_in_register"
+     ],
+     [
+      "HSF4+Stat5a::Stat5b",
+      "composite_motif_label"
+     ],
+     [
+      "ETV2::FOXI1+IRF4",
+      "composite_motif_label"
+     ],
+     [
+      "TFAP4::ETV1+ZNF93",
+      "composite_motif_label"
+     ],
+     [
+      "PRDM9+Pparg::Rxra",
+      "composite_motif_label"
+     ],
+     [
+      "EWSR1-FLI1+ETV5::FOXI1",
+      "composite_motif_label"
+     ],
+     [
+      "FOSL1::JUN+PPARG",
+      "composite_motif_label"
+     ],
+     [
+      "FOXO1::ELK3+Zic1::Zic2",
+      "composite_motif_label"
+     ],
+     [
+      "PROX1+FOSL1::JUND",
+      "composite_motif_label"
+     ],
+     [
+      "Thap11+ELK1::HOXB13",
+      "composite_motif_label"
+     ],
+     [
+      "EWSR1-FLI1+PRDM9+ZNF257",
+      "symbol_not_in_register"
+     ],
+     [
+      "E2F6+EWSR1-FLI1+PRDM9",
+      "symbol_not_in_register"
+     ],
+     [
+      "EWSR1-FLI1+PRDM9+SPIB",
+      "symbol_not_in_register"
+     ],
+     [
+      "EWSR1-FLI1+SPIB+ZNF257",
+      "symbol_not_in_register"
+     ]
+    ],
+    "datasets": 40,
+    "thresholds": {
+     "min_cells": 100,
+     "min_detection": 0.05,
+     "min_rho": 0.25,
+     "min_lift": 1.1,
+     "min_codetected": 25,
+     "max_q": 0.05,
+     "metacell_size": 20
+    }
+   },
+   "rna2": {
+    "screen": "tabula",
+    "context": "erythroid_myeloid_progenitor",
+    "mapping": "proxy: K562 (CML erythroleukemia line) -> normal erythroid/MEP/CMP progenitors",
+    "cl_ids": [
+     "CL:0000038",
+     "CL:0000049",
+     "CL:0000050",
+     "CL:0000547",
+     "CL:0000549",
+     "CL:0000550",
+     "CL:0000552",
+     "CL:0000764",
+     "CL:0000765",
+     "CL:0001066"
+    ],
+    "census_version": "2025-11-08",
+    "filter": "is_primary_data == True and cell_type_ontology_term_id in ['CL:0000038', 'CL:0000049', 'CL:0000050', 'CL:0000547', 'CL:0000549', 'CL:0000550', 'CL:0000552', 'CL:0000764', 'CL:0000765', 'CL:0001066'] and disease_ontology_term_id == 'PATO:0000461' and dataset_id == '53d208b0-2cfd-4366-9866-c3c6114081bc'",
+    "excluded_tabula_datasets": 0,
+    "n_cells": 1429,
+    "n_datasets": 1,
+    "n_candidate_pairs": 160,
+    "n_genes_in_census": 187,
+    "rejected_labels": [
+     [
+      "ZNF669+NR1H4::RXRA",
+      "composite_motif_label"
+     ],
+     [
+      "TFCP2+Hand1::Tcf3",
+      "composite_motif_label"
+     ],
+     [
+      "ELK1::SREBF2+ZBED1",
+      "composite_motif_label"
+     ],
+     [
+      "ZNF143+Stat5a::Stat5b",
+      "composite_motif_label"
+     ],
+     [
+      "mix-a+HMBOX1",
+      "symbol_not_in_register"
+     ],
+     [
+      "HSF4+Stat5a::Stat5b",
+      "composite_motif_label"
+     ],
+     [
+      "ETV2::FOXI1+IRF4",
+      "composite_motif_label"
+     ],
+     [
+      "TFAP4::ETV1+ZNF93",
+      "composite_motif_label"
+     ],
+     [
+      "PRDM9+Pparg::Rxra",
+      "composite_motif_label"
+     ],
+     [
+      "EWSR1-FLI1+ETV5::FOXI1",
+      "composite_motif_label"
+     ],
+     [
+      "FOSL1::JUN+PPARG",
+      "composite_motif_label"
+     ],
+     [
+      "FOXO1::ELK3+Zic1::Zic2",
+      "composite_motif_label"
+     ],
+     [
+      "PROX1+FOSL1::JUND",
+      "composite_motif_label"
+     ],
+     [
+      "Thap11+ELK1::HOXB13",
+      "composite_motif_label"
+     ],
+     [
+      "EWSR1-FLI1+PRDM9+ZNF257",
+      "symbol_not_in_register"
+     ],
+     [
+      "E2F6+EWSR1-FLI1+PRDM9",
+      "symbol_not_in_register"
+     ],
+     [
+      "EWSR1-FLI1+PRDM9+SPIB",
+      "symbol_not_in_register"
+     ],
+     [
+      "EWSR1-FLI1+SPIB+ZNF257",
+      "symbol_not_in_register"
+     ]
+    ],
+    "datasets": 1,
+    "thresholds": {
+     "min_cells": 100,
+     "min_detection": 0.05,
+     "min_rho": 0.25,
+     "min_lift": 1.1,
+     "min_codetected": 25,
+     "max_q": 0.05,
+     "metacell_size": 20
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,3 @@
+module_id	view	atac_dataset	atac_context	cell_type_id	tissue_id	disease_id	n_tfs	n_pairs	tf_ensembl	tf_symbols
+f94813ccbd6a	atac_only	CCLA_HepG2	hepatocyte	hepatocyte		PATO:0000461	6	5	ENSG00000105722;ENSG00000111145;ENSG00000126767;ENSG00000140968;ENSG00000178951;ENSG00000181472	ERF;ELK3;ELK1;IRF8;ZBTB7A;Zbtb2
+06cd139f240b	atac_only	CCLA_K562	erythroid_myeloid_progenitor	erythroid_myeloid_progenitor		PATO:0000461	3	2	ENSG00000100219;ENSG00000101216;ENSG00000107175	XBP1;GMEB2;CREB3

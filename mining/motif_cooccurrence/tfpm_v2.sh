@@ -33,6 +33,13 @@ Usage: tfpm v2 <command>
             (fragments -> MACS3 peaks -> bias model -> chrombpnet pipeline) from manifest fragments
      contrib/pairs shard over N jobs (merge job depends on shards); wr GPU jobs use
             TFPM_CBP_WR_QUEUE (gpu-normal) TFPM_CBP_WR_GPU ('-gpu "num=1:gmem=24000"') TFPM_CBP_WR_MEM (32G)
+  evidence --runner wr|local [--only ID[,ID]] [--census DATE]
+                             ATAC+RNA layer: donor-aware co-expression of every ChromBPNet candidate in the matched
+                             RNA cell context, CELLxGENE Census (Tabula Sapiens excluded) and Tabula Sapiens All Cells
+                             separately (mining/tf_pair_evidence/targeted_rna.py), then targeted_integrate -> $OUT/atac_rna
+                             -> aggregate. Context map: TFPM_EVID_CONTEXTS (default CCLA_HepG2=hepatocyte,
+                             CCLA_K562=erythroid_myeloid_progenitor; proxy matches). Python: TFPM_EVID_VENV (default $ROOT/.venv,
+                             needs cellxgene-census). Atlas-wide uncapped screens: mining/tf_pair_evidence/run_remote.sh
 Out: $OUT   Manifest: $MANIFEST
 U
 }
@@ -147,8 +154,34 @@ cmd_chrombpnet(){
     *) die "use --runner wr or --runner local";;
   esac
 }
+cmd_evidence(){
+  local runner="" only="" census="${TFPM_CENSUS:-2025-11-08}"
+  while [ $# -gt 0 ]; do case "$1" in --runner) runner="$2"; shift 2;; --only) only="$2"; shift 2;;
+    --census) census="$2"; shift 2;; *) die "unknown option $1";; esac; done
+  local EPY="${TFPM_EVID_VENV:-$ROOT/.venv}/bin/python" ctxs="${TFPM_EVID_CONTEXTS:-CCLA_HepG2=hepatocyte,CCLA_K562=erythroid_myeloid_progenitor}"
+  "$EPY" -c "import cellxgene_census" 2>/dev/null || die "need cellxgene-census in ${TFPM_EVID_VENV:-$ROOT/.venv} (pip install -r $ROOT/mining/requirements.txt)"
+  mkdir -p "$OUT/logs" "$OUT/rna"; local jobs="$OUT/evid.jobs" lines=""; : > "$jobs"
+  local E="cd $ROOT/mining && $EPY -m tf_pair_evidence"
+  for kv in ${ctxs//,/ }; do local id="${kv%%=*}" ctx="${kv#*=}" cbp="$OUT/samples/${kv%%=*}/chrombpnet/pairs_cbp.tsv"
+    [ -z "$only" ] || [[ ",$only," == *",$id,"* ]] || continue
+    [ -f "$cbp" ] || { echo "skip $id: no pairs_cbp.tsv (run chrombpnet first)"; continue; }
+    for sc in cellxgene tabula; do
+      echo "$E.targeted_rna --pairs-cbp $cbp --register $ROOT/compendium/gene_register.tsv --context $ctx --screen $sc --census-version $census --out $OUT/rna/$sc/$id > $OUT/logs/evid_${sc}_$id.log 2>&1" >> "$jobs"; done
+    lines="$lines --line $id:$ctx:$cbp:$OUT/rna/cellxgene/$id:$OUT/rna/tabula/$id"; done
+  local integ="$E.targeted_integrate $lines --register $ROOT/compendium/gene_register.tsv --out $OUT/atac_rna > $OUT/logs/evid_integrate.log 2>&1"
+  case "$runner" in
+    wr) command -v wr >/dev/null || die "wr not on PATH"
+      wr add -f "$jobs" -i tfpm-evid-rna -e tfpm_evid_rna -m "${TFPM_EVID_WR_MEM:-16G}" -t "${TFPM_EVID_WR_TIME:-12h}" --cpus 2 -r 3
+      printf '%s && %s\n' "$integ" "$HERE/tfpm_v2.sh aggregate" | wr add -i tfpm-evid-integrate -d tfpm_evid_rna -m 8G -t 2h -r 1
+      echo "Queued $(wc -l < "$jobs") RNA jobs + integrate/aggregate (wr status -i tfpm-evid-rna)";;
+    local) while read -r j; do echo "+ ${j%% >*}"; bash -c "$j" || die "failed: see log"; done < "$jobs"
+      bash -c "$integ" && cmd_aggregate;;
+    *) die "use --runner wr or --runner local";;
+  esac
+}
 
 case "${1:-}" in
   setup) shift; cmd_setup "$@";; discover) cmd_discover;; run) shift; cmd_run "$@";; status) cmd_status;;
-  aggregate) cmd_aggregate;; publish) shift; cmd_publish "$@";; chrombpnet) shift; cmd_chrombpnet "$@";; *) usage;;
+  aggregate) cmd_aggregate;; publish) shift; cmd_publish "$@";; chrombpnet) shift; cmd_chrombpnet "$@";;
+  evidence) shift; cmd_evidence "$@";; *) usage;;
 esac

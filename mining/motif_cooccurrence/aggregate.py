@@ -147,6 +147,39 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
                 if len(cbp_tracks[tfs]) < 4:
                     cbp_tracks[tfs].append({**t, "u": u})
 
+    # ---- ATAC+RNA evidence layer (optional; out/atac_rna/ from tf_pair_evidence.targeted_integrate)
+    rna = defaultdict(dict)
+    ar = out / "atac_rna"
+    if (ar / "master.tsv").exists():
+        for r in read_tsv(ar / "master.tsv"):
+            if r["k"] == "2":
+                rna[tuple(sorted(r["tfs"].split("+")))][r["atac_dataset"]] = {
+                    k: r[k] for k in ("evidence_view", "atac_status", "rna1_status", "rna1_best_r", "rna1_min_q",
+                                      "rna2_status", "rna2_best_r", "rna2_min_q", "mapping_note", "rna_context")}
+        rows = list(read_tsv(ar / "master.tsv"))
+        (site / "atac_rna.json").write_text(json.dumps({
+            "summary": json.loads((ar / "summary.json").read_text()), "rows": rows,
+            "modules": list(read_tsv(ar / "modules.tsv"))}, separators=(",", ":"), default=str))
+
+    def rna_label(tfs):
+        views = {v for e in rna.get(tfs, {}).values() for v in e["evidence_view"].split("|")}
+        for v in ("atac_rna1|atac_rna2", "atac_rna1", "atac_rna2", "rna_only", "atac_only"):
+            if set(v.split("|")) <= views:
+                return {"atac_rna1|atac_rna2": "atac_rna_both"}.get(v, v)
+        return "unassessed" if tfs in rna else "not_run"
+
+    def rna_text(tfs):
+        ev = rna.get(tfs)
+        if not ev:
+            return ""
+        bits = []
+        for u, e in sorted(ev.items()):
+            st = lambda k: {"hit": "co-expressed", "screened_no_hit": "no significant co-expression",
+                            "unassessed": "unassessed"}.get(e[k], e[k])
+            bits.append(f"{u.replace('CCLA_', '')} ({e['rna_context'].replace('_', ' ')}, proxy match): "
+                        f"CELLxGENE {st('rna1_status')}, Tabula Sapiens {st('rna2_status')}")
+        return " RNA layer (donor-aware within-donor metacell r): " + "; ".join(bits) + "."
+
     def cbp_label(tfs):
         ev = cbp.get(tfs) or cbp_sets.get(tfs) or {}
         tested = [e for e in ev.values() if e["st"] == "tested"]
@@ -175,6 +208,7 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
             c["family_flags"] = c["family_flags"] + ["broad"]
         c["rating"], c["rating_label"] = rating(c)
         c["cbp"] = cbp_label((a, b))
+        c["rna"] = rna_label((a, b))
         c["cbp_coop"] = sorted({e.get("coop") for e in cbp.get((a, b), {}).values() if e.get("coop")})
         c["score"] = round(c["n_distinct_rep"] * 3 + c["n_distinct_any"] + 0.5 * c["n_sig"]
                            + min(10, -math.log10(max(c["best_q"], 1e-300))) / 10 + (c["median_lift_sig"] or 1) / 10, 3)
@@ -183,7 +217,7 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
     cons.sort(key=lambda c: (order[c["rating"]], -c["score"]))
     cons = cons[:max_pairs]
     for c in cons:
-        c["summary"] = summary_text(c, units) + cbp_text(c, cbp.get((c["tf_a"], c["tf_b"]), {}))
+        c["summary"] = summary_text(c, units) + cbp_text(c, cbp.get((c["tf_a"], c["tf_b"]), {})) + rna_text((c["tf_a"], c["tf_b"]))
     for s_ in sets:
         e = cbp_sets.get(tuple(sorted(s_["tfs"])), {})
         s_["cbp"] = cbp_label(tuple(sorted(s_["tfs"])))
@@ -213,7 +247,7 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
             first = next(iter(pairs[key].values()))
             det["pairs"].append({**{k: v for k, v in c.items() if k != "sig_units"}, "ma": first["ma"], "mb": first["mb"],
                                  "per": per, "examples": examples.get(key, [])[:max_examples],
-                                 "cbp_per": cbp.get(key, {}), "cbp_tracks": cbp_tracks.get(key, [])})
+                                 "cbp_per": cbp.get(key, {}), "cbp_tracks": cbp_tracks.get(key, []), "rna_per": rna.get(key, {})})
         (site / "tf" / f"{slug(tf)}.json").write_text(json.dumps(det, separators=(",", ":")))
     # per-unit sample files
     for u in U:
@@ -235,9 +269,10 @@ def aggregate(out, site, meme=None, max_pairs=12000, max_examples=6):
                         "by_rating": {r: sum(c["rating"] == r for c in cons) for r in order}},
              "pairs": [[c["tf_a"], c["tf_b"], c["rating"], c["n_sig"], c["n_distinct_rep"], c["median_lift_sig"],
                         c["best_q"], ",".join(c["datasets"]), "|".join(c["family_flags"]), c["median_gap"], c["cbp"],
-                        ",".join(c["cbp_coop"])] for c in cons],
+                        ",".join(c["cbp_coop"]), c["rna"]] for c in cons],
              "pair_fields": ["tf_a", "tf_b", "rating", "n_sig", "n_distinct_rep", "median_lift", "best_q", "datasets",
-                             "flags", "median_gap", "cbp", "cbp_coop"],
+                             "flags", "median_gap", "cbp", "cbp_coop", "rna"],
+             "rna_counts": {k: sum(c["rna"] == k for c in cons) for k in ("atac_rna_both", "atac_rna1", "atac_rna2", "rna_only", "atac_only", "unassessed", "not_run")},
              "cbp_units": cbp_units,
              "cbp_counts": {k: sum(c["cbp"] == k for c in cons) for k in ("supported", "not_supported", "untestable", "not_run")},
              "top_sets": sorted([s_ for s_ in sets if s_["s"] == "synergistic_set"], key=lambda s: s["q"] or 1)[:300],

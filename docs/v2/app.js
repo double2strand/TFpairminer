@@ -40,6 +40,53 @@ function cbpPanel(per, tracks, kind) {
    ${(tracks || []).length ? `<h3>Example contribution tracks</h3>${tracks.slice(0, 3).map(trackSVG).join("")}` : ""}
    <p class="tag"><b>Not yet run:</b> ${notRun.length ? esc(notRun.join(", ")) : "none"}. Contribution-supported = the median contribution percentile of every motif site ≥ 0.75 relative to random same-length positions in the same windows. Synergy is from in-silico ablation (site bases shuffled, 2 seeds) on the model's count head; Wilcoxon over windows, BH across candidates. Models: ENCODE pretrained bias-corrected ChromBPNet (bulk ATAC of the same cell line, fold 0), not trained on CCLA fragments.</p></div>`;
 }
+const RV = {atac_only: ["ChromBPNet-only", "ChromBPNet contribution-supported; tested in both RNA screens with no significant co-expression"],
+  atac_rna1: ["ChromBPNet + CELLxGENE", "ChromBPNet-supported and significant donor-aware co-expression in CELLxGENE Census (Tabula Sapiens excluded)"],
+  atac_rna2: ["ChromBPNet + Tabula Sapiens", "ChromBPNet-supported and significant donor-aware co-expression in Tabula Sapiens (All Cells)"],
+  rna_only: ["RNA-replicated, ChromBPNet not supported", "Significant in both RNA screens; ChromBPNet tested the pair and did not find contribution support"],
+  unassessed: ["Unassessed", "At least one layer could not be evaluated (gene not detected, too few cells, composite motif label, or not run). Not a negative."]};
+const RS = {hit: ["rs-hit", "co-expressed"], screened_no_hit: ["rs-no", "no hit"], unassessed: ["rs-na", "unassessed"]};
+const rsb = s => `<span class="badge ${(RS[s] || RS.unassessed)[0]}">${(RS[s] || RS.unassessed)[1]}</span>`;
+const RNAB = {atac_rna_both: "ATAC + both RNA", atac_rna1: "ATAC + CELLxGENE", atac_rna2: "ATAC + Tabula", rna_only: "RNA-only (ATAC ✗)", atac_only: "ATAC-only", unassessed: "RNA unassessed", not_run: ""};
+const rnab = k => k && k !== "not_run" ? `<span class="badge rv-${k}">${RNAB[k]}</span>` : "";
+function rnaPanel(rows) {
+  if (!rows.length) return "";
+  return `<div class="card cbp"><h2>ATAC + RNA evidence <span class="tag">ChromBPNet × two independent scRNA screens</span></h2><div class="tablewrap"><table><thead><tr><th>ATAC profile</th><th>RNA context (match)</th><th>ChromBPNet</th><th>Site pct</th><th>Synergy q</th><th>CELLxGENE</th><th>r / q</th><th>Tabula Sapiens</th><th>r / q</th><th>View</th></tr></thead><tbody>${rows.map(r => `<tr><td>${unitLink(r.atac_dataset)}</td><td>${esc(r.rna_context.replace(/_/g, " "))}<div class="tag">${esc(r.mapping_note)}</div></td>
+   <td>${r.atac_status === "supported" ? '<b class="ok">supported</b>' : r.atac_status === "tested_no_support" ? "tested, not supported" : "unassessed"}</td><td class="n">${esc(r.cbp_median_site_pct.split(";").map(v => fmt(+v, 2)).join(" / "))}</td><td class="n">${fmt(r.cbp_synergy_q)}</td>
+   <td>${rsb(r.rna1_status)}<div class="tag">${esc(r.rna1_best_stratum || "")}</div></td><td class="n">${fmt(r.rna1_best_r, 2)} / ${fmt(r.rna1_min_q)}<div class="tag">${r.rna1_n_tested_strata ? `${r.rna1_n_hit_strata}/${r.rna1_n_tested_strata} strata` : ""}</div></td>
+   <td>${rsb(r.rna2_status)}<div class="tag">${esc(r.rna2_best_stratum || "")}</div></td><td class="n">${fmt(r.rna2_best_r, 2)} / ${fmt(r.rna2_min_q)}<div class="tag">${r.rna2_n_tested_strata ? `${r.rna2_n_hit_strata}/${r.rna2_n_tested_strata} strata` : ""}</div></td>
+   <td>${r.evidence_view.split("|").map(v => `<span class="badge rvv-${v}" title="${esc((RV[v] || [])[1])}">${esc((RV[v] || [v])[0])}</span>`).join(" ")}${r.note ? `<div class="tag">${esc(r.note)}</div>` : ""}</td></tr>`).join("")}</tbody></table></div>
+   <p class="tag">RNA statistic: within-donor metacell (20 cells) partial correlation, donor fixed effects + library size, per dataset × cell type × tissue × assay stratum (≥100 cells, both genes detected in ≥5% of cells). Hit = r ≥ 0.25, BH q ≤ 0.05 within stratum, co-detection lift ≥ 1.1, ≥25 co-detected cells, in any stratum. Cell lines are matched to <i>normal</i> tissue cell types, so every match is a labelled proxy. "Unassessed" is never a negative.</p></div>`;
+}
+async function viewAtacRna(tab, sel) {
+  if (!D.ar) D.ar = await J("data/atac_rna.json");
+  const A = D.ar, S = A.summary, rows = A.rows, tabs = ["atac_only", "atac_rna1", "atac_rna2", "rna_only", "unassessed"];
+  tab = tabs.includes(tab) ? tab : "atac_only";
+  const inV = (r, v) => r.evidence_view.split("|").includes(v), lines = [...new Set(rows.map(r => r.atac_dataset))];
+  const cnt = v => lines.map(l => `${esc(shortU(l))} <b>${rows.filter(r => r.atac_dataset === l && inV(r, v)).length}</b>`).join(" · ");
+  const st = (S.lines || []).map(l => `<li><b>${esc(shortU(l.atac_dataset))}</b> → ${esc(l.rna1.mapping)}. CELLxGENE: ${l.rna1.n_cells.toLocaleString()} cells, ${l.rna1.datasets} datasets; Tabula Sapiens All Cells: ${l.rna2.n_cells.toLocaleString()} cells. Census ${esc(l.rna1.census_version)}.</li>`).join("");
+  main().innerHTML = `<div class="card"><h2>ATAC + RNA: ChromBPNet × CELLxGENE × Tabula Sapiens</h2>
+   <p>Each ChromBPNet-assessed candidate (CCLA bulk-ATAC models) is tested for donor-aware TF–TF co-expression in two independent scRNA resources in the matched cell context: CELLxGENE Census (discovery; Tabula Sapiens excluded) and Tabula Sapiens (replication). The four sets are evidence views, not a partition: a pair co-expressed in both screens appears in both ATAC+RNA tabs. ATAC atlases are kept separate; the scATAC Corpus profiles have no ChromBPNet run, so they are unassessed here.</p><ul class="tag">${st}</ul></div>
+  <div class="tabs">${tabs.map(t => `<button class="${t === tab ? "on" : ""}" onclick="location.hash='#/atacrna/${t}'" title="${esc(RV[t][1])}">${esc(RV[t][0])}<br><span class="tag">${cnt(t)}</span></button>`).join("")}</div>
+  <div class="card"><p class="tag">${esc(RV[tab][1])}</p>
+   <div class="filters"><select id="fl"><option value="">All ATAC profiles</option>${lines.map(l => `<option value="${esc(l)}">${esc(shortU(l))}</option>`).join("")}</select>
+    <select id="fk"><option value="">pairs + triplets</option><option value="2">pairs</option><option value="3">triplets</option></select>
+    <select id="fr"><option value="">any RNA status</option><option value="both">co-expressed in both</option><option value="any">co-expressed in ≥1</option></select>
+    <input id="ft" placeholder="TF filter"></div><div id="artab"></div></div>
+  <div class="card"><h2>Modules (≥3 TFs, connected components per view × ATAC profile)</h2>${A.modules.length ? `<table><thead><tr><th>View</th><th>ATAC profile</th><th>TFs</th><th>Pairs</th></tr></thead><tbody>${A.modules.map(m => `<tr><td>${esc((RV[m.view] || [m.view])[0])}</td><td>${esc(shortU(m.atac_dataset))}</td><td>${m.tf_symbols.split(";").map(tfLink).join(", ")}</td><td class="n">${m.n_pairs}</td></tr>`).join("")}</tbody></table>` : `<p>No connected component with ≥3 TFs in any view.</p>`}
+   <p class="tag">A component is a network summary, not evidence of one physical complex.</p></div><div id="arsel"></div>`;
+  const draw = () => {
+    const l = $("#fl").value, k = $("#fk").value, rs = $("#fr").value, t = $("#ft").value.trim().toLowerCase();
+    const L = rows.filter(r => inV(r, tab) && (!l || r.atac_dataset === l) && (!k || r.k === k) && (!t || r.tfs.toLowerCase().includes(t))
+      && (!rs || (rs === "both" ? r.rna1_status === "hit" && r.rna2_status === "hit" : r.rna1_status === "hit" || r.rna2_status === "hit")));
+    L.sort((a, b) => (Math.max(+b.rna1_best_r || 0, +b.rna2_best_r || 0)) - (Math.max(+a.rna1_best_r || 0, +a.rna2_best_r || 0)));
+    $("#artab").innerHTML = L.length ? `<div class="tablewrap" style="max-height:520px"><table class="sort"><thead><tr><th>TFs</th><th>ATAC profile</th><th>ChromBPNet</th><th>CELLxGENE</th><th>r</th><th>Tabula</th><th>r</th><th>Note</th></tr></thead><tbody>${L.map((r, i) => `<tr class="clk" data-i="${rows.indexOf(r)}"><td><a href="javascript:void 0">${esc(r.tfs)}</a></td><td>${esc(shortU(r.atac_dataset))}</td><td>${r.atac_status === "supported" ? "contrib ✓" : r.atac_status === "tested_no_support" ? "contrib ✗" : "–"}</td><td>${rsb(r.rna1_status)}</td><td class="n">${fmt(r.rna1_best_r, 2)}</td><td>${rsb(r.rna2_status)}</td><td class="n">${fmt(r.rna2_best_r, 2)}</td><td class="tag">${esc(r.note)}</td></tr>`).join("")}</tbody></table></div><p class="tag">${L.length} rows. Click a row for the evidence panel.</p>` : "<p>No rows match.</p>";
+    sortable($("#artab"));
+    $("#artab").querySelectorAll("tr.clk").forEach(tr => tr.onclick = () => { const r = rows[+tr.dataset.i]; const n = r.tfs.split("+");
+      $("#arsel").innerHTML = `<div class="crumb">${n.length === 2 ? pairLink(n[0], n[1], "Open motif pair page ›") : ""}</div>` + rnaPanel(rows.filter(x => x.tfs === r.tfs)); $("#arsel").scrollIntoView({behavior: "smooth"}); });
+  };
+  ["#fl", "#fk", "#fr"].forEach(s => $(s).onchange = draw); $("#ft").oninput = draw; draw();
+}
 const status = {D: "distinct", F: "family-level", E: "exploratory"};
 function color(l) { if (l == null) return "#f3f4f6"; const v = Math.max(-1, Math.min(1, Math.log2(l) / 1.5)); return v >= 0 ? `rgba(220,38,38,${0.12 + 0.88 * v})` : `rgba(37,99,235,${0.12 - 0.88 * v})`; }
 
@@ -82,6 +129,7 @@ async function route() {
     else if (parts[0] === "sets") viewSets();
     else if (parts[0] === "set") await viewSet(parts[1]);
     else if (parts[0] === "about") viewAbout();
+    else if (parts[0] === "atacrna") await viewAtacRna(parts[1], parts[2]);
     else viewHome();
   } catch (e) { main().innerHTML = `<div class="card">Could not load: ${esc(e.message)}</div>`; }
   window.scrollTo(0, 0);
@@ -96,7 +144,7 @@ function sortable(el) {
 }
 function pairsTable(list, opts = {}) {
   return `<div class="tablewrap"><table class="sort"><thead><tr><th>Pair</th><th>Rating</th><th>Profiles enriched</th><th>Distinct + replicated</th><th>Median lift</th><th>Best q</th><th>Spacing (bp)</th><th>Datasets</th><th>Flags</th><th>Evidence</th></tr></thead><tbody>${
-    list.map(p => `<tr><td>${pairLink(p.tf_a, p.tf_b)}</td><td data-v="${["strong", "moderate", "preliminary", "family", "weak"].indexOf(p.rating)}">${rbadge(p.rating)}</td><td class="n">${p.n_sig}/${D.index.units.length}</td><td class="n">${p.n_distinct_rep}</td><td class="n">${fmt(p.median_lift ?? p.median_lift_sig, 2)}</td><td class="n" data-v="${p.best_q}">${fmt(p.best_q)}</td><td class="n">${p.median_gap == null ? "–" : Math.round(p.median_gap)}</td><td>${esc(p.datasets)}</td><td>${flagBadges(typeof p.flags === "string" ? p.flags.split("|") : p.family_flags)}</td><td data-v="${["supported", "not_supported", "untestable", "not_run"].indexOf(p.cbp || "not_run")}">${cbadge(p.cbp, 1)}${(p.cbp_coop || "").includes("synergistic") && !(p.cbp_coop || "").includes("sub") ? ' <span class="badge cbp-syn">synergy</span>' : ""}</td></tr>`).join("")}</tbody></table></div>`;
+    list.map(p => `<tr><td>${pairLink(p.tf_a, p.tf_b)}</td><td data-v="${["strong", "moderate", "preliminary", "family", "weak"].indexOf(p.rating)}">${rbadge(p.rating)}</td><td class="n">${p.n_sig}/${D.index.units.length}</td><td class="n">${p.n_distinct_rep}</td><td class="n">${fmt(p.median_lift ?? p.median_lift_sig, 2)}</td><td class="n" data-v="${p.best_q}">${fmt(p.best_q)}</td><td class="n">${p.median_gap == null ? "–" : Math.round(p.median_gap)}</td><td>${esc(p.datasets)}</td><td>${flagBadges(typeof p.flags === "string" ? p.flags.split("|") : p.family_flags)}</td><td data-v="${["supported", "not_supported", "untestable", "not_run"].indexOf(p.cbp || "not_run")}">${cbadge(p.cbp, 1)}${(p.cbp_coop || "").includes("synergistic") && !(p.cbp_coop || "").includes("sub") ? ' <span class="badge cbp-syn">synergy</span>' : ""} ${rnab(p.rna)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 function viewHome() {
   const I = D.index, c = I.counts, us = I.units, ds = [...new Set(us.map(u => u.dataset))];
@@ -192,7 +240,7 @@ async function viewPair(a, b) {
   const units = D.index.units, fam = [p.fam_a, p.fam_b], per = Object.entries(p.per);
   const anyv = {ma: p.ma, mb: p.mb}, famBadge = p.rating === "family" || p.family_flags.length ? `<span class="badge fl">family-level caution</span>` : `<span class="badge r-preliminary">motifs distinguishable</span>`;
   main().innerHTML = `<div class="crumb"><a href="#/">Overview</a> › ${tfLink(p.tf_a)} › pair</div>
-  <div class="card"><p class="big"><b>${tfLink(p.tf_a)} + ${tfLink(p.tf_b)}</b> ${rbadge(p.rating)} ${famBadge} ${flagBadges(p.family_flags)} ${cbadge(p.cbp)}</p>
+  <div class="card"><p class="big"><b>${tfLink(p.tf_a)} + ${tfLink(p.tf_b)}</b> ${rbadge(p.rating)} ${famBadge} ${flagBadges(p.family_flags)} ${cbadge(p.cbp)} ${rnab(p.rna)}</p>
    <div class="kv tag"><span>${esc(p.tf_a)}: ${esc(anyv.ma)} · family ${esc(p.fam_a || "unassigned")}</span><span>${esc(p.tf_b)}: ${esc(anyv.mb)} · family ${esc(p.fam_b || "unassigned")}</span>
    <span><a href="https://jaspar.elixir.no/matrix/${esc(anyv.ma)}/" target="_blank">JASPAR ${esc(anyv.ma)}</a> · <a href="https://jaspar.elixir.no/matrix/${esc(anyv.mb)}/" target="_blank">JASPAR ${esc(anyv.mb)}</a></span></div>
    <p class="summary">${esc(p.summary)}</p>
@@ -206,9 +254,11 @@ async function viewPair(a, b) {
   <div class="card"><h2>Site examples</h2>${p.examples.length ? `<table class="ex"><thead><tr><th>Profile</th><th>Window</th><th>${esc(p.tf_a)} site</th><th>${esc(p.tf_b)} site</th><th>Gap</th><th>Cuts (rep1/rep2)</th><th></th></tr></thead><tbody>${
      p.examples.map(e => `<tr><td>${unitLink(e.u)}</td><td>${esc(e.w)}</td><td>${e.chrom}:${e.a[0]}-${e.a[1]}</td><td>${e.chrom}:${e.b[0]}-${e.b[1]}</td><td>${e.gap} bp</td><td>${e.cuts} (${esc(e.rc)})</td><td><a target="_blank" href="https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=${encodeURIComponent(e.w)}">UCSC</a></td></tr>`).join("")}</tbody></table>` : `<p class="muted">Site examples are exported for the top 60 significant pairs per profile. This pair has none.</p>`}
    <p class="tag">Coordinates are hg38, 0-based starts, and the most accessible joint windows come first. A site example shows co-occurring motif matches, not bound factors.</p></div>
-  ${cbpPanel(p.cbp_per, p.cbp_tracks, "pair")}
+  ${cbpPanel(p.cbp_per, p.cbp_tracks, "pair")}<div id="rnap"></div>
   <div class="card"><h2>How to read this</h2><p>The lift is observed / expected joint windows, with the expectation computed within strata of GC, accessibility, motif density and repeat content. q is BH-adjusted across all pairs in that profile. "Distinct" means the two motifs are not the same family, are not highly similar PWMs, and do not mostly overlap. "Replicated" means the enrichment holds independently in both replicate (or pseudoreplicate) window sets. <b>Next tests:</b> co-binding (ChIP/CUT&amp;RUN) at the example sites, motif mutagenesis or MPRA, and, where the ChromBPNet panel shows support, joint motif mutagenesis. The rating above is motif-only. ChromBPNet evidence is a separate layer and does not change it.</p></div>`;
   sortable(main());
+  if (p.rna && p.rna !== "not_run") { try { D.ar = D.ar || await J("data/atac_rna.json"); const k = [p.tf_a, p.tf_b].sort().join("+");
+    $("#rnap").innerHTML = rnaPanel(D.ar.rows.filter(r => r.k === "2" && r.tfs.split("+").sort().join("+") === k)); } catch (e) {} }
 }
 function viewSamples() { main().innerHTML = `<div class="card"><h2>Samples, cell lines and cell types</h2>${unitTable(D.index.units)}</div>`; sortable(main()); }
 async function viewSample(u) {
@@ -252,9 +302,12 @@ function viewAbout() {
   <li><b>Sets & modules.</b> Triplets are tested against the best constituent pair (Poisson + BH). Modules are maximal cliques of replicated distinct pairs.</li>
   <li><b>Consistency & ratings.</b> Pairs are aggregated over all profiles. "broad" marks enrichment in ≥75% of profiles, which may be compositional.</li>
   <li><b>ChromBPNet evidence layer (separate).</b> For profiles with a model, candidates (top distinct pairs, cross-profile strong/moderate pairs, broad controls and synergistic sets) are scored as follows. Contribution scores (integrated gradients from dinucleotide-shuffled references on the box; DeepSHAP via <code>chrombpnet contribs_bw</code> on the cluster) are computed over accessible windows. A pair is <i>contribution-supported</i> when every motif site's median contribution percentile is ≥ 0.75. Joint vs single in-silico ablation of the sites gives a synergy score, Δjoint − ΣΔsingle on predicted log-counts. TF-MoDISco patterns are mapped to JASPAR as a de novo check.</li></ol>
+  <li><b>ATAC + RNA layer (separate).</b> Every ChromBPNet candidate (CCLA HepG2/K562) is tested for donor-aware co-expression (within-donor 20-cell metacell partial r with donor fixed effects + library size; strata dataset × cell type × tissue × assay with ≥100 cells; both genes detected in ≥5% of cells; hit = r≥0.25, BH q≤0.05 over the candidates in the stratum, lift≥1.1, ≥25 co-detected cells) in two independent screens: CELLxGENE Census 2025-11-08 (normal, primary data, Tabula Sapiens excluded) and Tabula Sapiens All Cells. Context matches are labelled <i>proxy</i> (HepG2 → hepatocytes; K562 → erythroid/MEP/CMP progenitors). A triplet is an RNA hit only when all three sub-pairs are hits. Undetected genes, composite motif labels and profiles without ChromBPNet are <i>unassessed</i>, never negative. RNA is a separate badge and does not change the motif rating.</li>
   <h3>Pilot</h3><p>The earlier HepG2 chr22 pilot (500 windows; GC × insertion strata; 999 permutations) was re-run on this build box: FOXA2–HNF1A had 144 joint windows, lift 1.63 and permutation q 0.018 (pilot priority). FOS–JUN (lift 2.02), CEBPA–CEBPB (2.12) and MAX–MYC (2.42) were family-level. Genome-wide v2 runs use the stricter matched background described above, so lifts are lower.</p>
   <h3>Toolkit</h3><pre>./tfpm v2 setup && ./tfpm v2 discover
 ./tfpm v2 run --runner wr      # or --runner local --parallel 1
+./tfpm v2 chrombpnet all --runner wr
+./tfpm v2 evidence --runner wr   # ATAC + RNA layer; or --runner local
 ./tfpm v2 publish</pre><p><a href="https://github.com/double2strand/TFpairminer/tree/main/mining/motif_cooccurrence">mining/motif_cooccurrence/README.md</a> has the cluster and workstation steps.</p>
   <h3>Not done / caveats</h3><ul><li>ChromBPNet has been run only for the profiles listed on the overview, using ENCODE pretrained bulk-ATAC models (fold 0) rather than models trained on the CCLA fragments. Every other profile shows "not yet run".</li><li>Lifts are window-level co-occurrence and say nothing about binding.</li><li>Several CCLA lines (HCT116, MCF7, HeLa, GM12878) were unavailable (HTTP 404).</li><li>The Corpus provides only cell × cCRE matrices, not fragments, so its windows are cCREs and its replicates are pseudoreplicates.</li></ul></div>`;
 }
