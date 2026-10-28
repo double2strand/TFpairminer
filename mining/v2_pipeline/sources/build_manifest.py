@@ -18,7 +18,7 @@ HSC = "https://health.tsinghua.edu.cn/human-scatac-corpus"
 UA = {"User-Agent": "Mozilla/5.0 TFpairminer-v2-pipeline"}
 FIELDS = ["profile_id", "atlas", "source", "kind", "context", "tissue", "inputs", "sizes", "md5", "checksum_note",
           "fragments", "fragment_sizes", "celltype_col", "n_cells", "n_cell_types", "accession", "pmid",
-          "cbp_pretrained", "cbp_pretrained_sha256", "rna_context", "mapping_level"]
+          "cbp_pretrained", "cbp_pretrained_sha256", "rna_context", "mapping_level", "enabled", "disabled_reason"]
 
 # ENCODE experiment to prefer when several ChromBPNet models exist (matches the published v2 HepG2/K562 runs).
 PREFERRED = {"HepG2": "ENCSR291GJU", "K562": "ENCSR483RKN"}
@@ -36,6 +36,12 @@ def get(url, data=None):
     req = urllib.request.Request(url, data=data, headers=UA)
     with urllib.request.urlopen(req, timeout=120) as r:
         return r.read().decode()
+
+
+def head_status(url):
+    """Final HTTP status after redirects (HEAD); '000' on network failure."""
+    return subprocess.run(["curl", "-sIL", "-m", "60", "-o", "/dev/null", "-w", "%{http_code}", "-A", UA["User-Agent"], url],
+                          capture_output=True, text=True).stdout.strip() or "000"
 
 
 def head_size(url):
@@ -116,8 +122,14 @@ def main():
                      "n_cells": s.get("number_of_cells", ""), "n_cell_types": s.get("number_of_cell_types", ""),
                      "accession": strip(s.get("accession")), "pmid": s.get("pmid", ""), "cbp_pretrained": "", "cbp_pretrained_sha256": "",
                      "rna_context": "auto", "mapping_level": "auto"})
+    for r in rows:
+        r.setdefault("enabled", "1"); r.setdefault("disabled_reason", "")
     if not a.no_head:
         def fill(r):
+            urls = [u for c in ("inputs", "fragments", "cbp_pretrained") for u in r.get(c, "").split(",") if u]
+            bad = [f"{u.rsplit('/', 1)[-1]}=HTTP {c}" for u in urls for c in [head_status(u)] if c != "200"]
+            if bad:   # pipeline skips disabled rows instead of failing in stage 01
+                r["enabled"], r["disabled_reason"] = "0", "unavailable at build time: " + "; ".join(bad)
             r["sizes"] = ",".join(head_size(u) for u in r["inputs"].split(","))
             r["fragment_sizes"] = ",".join(head_size(u) for u in r["fragments"].split(",") if u)
         with ThreadPoolExecutor(8) as ex:

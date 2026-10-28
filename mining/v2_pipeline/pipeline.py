@@ -173,8 +173,17 @@ def slug(s):
 
 
 # ----------------------------------------------------------------------------- samples, profiles, contexts
+def is_enabled(r):
+    """Manifest rows are enabled unless `enabled` is 0/false/no/n (missing column/empty = enabled)."""
+    return str(r.get("enabled", "") or "1").strip().lower() not in ("0", "false", "no", "n")
+
+
+def disabled_samples(cfg):
+    return [r for r in read_tsv(cfg.path_(cfg["manifest"])) if not is_enabled(r)]
+
+
 def samples(cfg):
-    rows = read_tsv(cfg.path_(cfg["manifest"]))
+    rows = [r for r in read_tsv(cfg.path_(cfg["manifest"])) if is_enabled(r)]
     only = cfg.get("only") or []
     if only:
         rows = [r for r in rows if any(r["profile_id"] == o or re.fullmatch(o, r["profile_id"]) for o in only)]
@@ -370,7 +379,7 @@ def run_manifest(cfg):
     """Local-path manifest in the motif_cooccurrence.cli format (written atomically, deterministic)."""
     rows = [{"sample_id": r["profile_id"], "dataset": DATASET.get(r["atlas"], r["atlas"]), "context": r["context"],
              "kind": r["kind"], "inputs": ",".join(local_inputs(cfg, r)), "celltype_col": r.get("celltype_col", "")}
-            for r in read_tsv(cfg.path_(cfg["manifest"]))]
+            for r in read_tsv(cfg.path_(cfg["manifest"])) if is_enabled(r)]
     p = cfg.out / "run_manifest.tsv"
     with open(cfg.out / ".run_manifest.lock", "w") as lk:      # serialise writers (flock; Lustre client may make it node-local)
         try:
@@ -974,6 +983,8 @@ def print_status(cfg):
     tot = {k: sum(v == k for s in STAGES for v in st[s].values()) for k in sym}
     print(f"\nunits: {tot}   legend: ✓ done  – skipped  ✗ failed  ~ running  . pending  n/m partially done")
     print(f"logs: {cfg.out}/logs/<stage>/<unit>.log   markers: {cfg.out}/state/")
+    for r in disabled_samples(cfg):
+        print(f"disabled: {r['profile_id']}  ({r.get('disabled_reason', '') or 'no reason given'})")
 
 
 # ----------------------------------------------------------------------------- CLI

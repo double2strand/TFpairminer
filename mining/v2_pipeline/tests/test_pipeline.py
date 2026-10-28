@@ -156,3 +156,25 @@ class TestTargetedRnaLocal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDisabledRows(unittest.TestCase):
+    def test_disabled_rows_skipped(self):
+        with tempfile.TemporaryDirectory() as t:
+            m = Path(t) / "m.tsv"
+            m.write_text("profile_id\tatlas\tcontext\tkind\tinputs\tenabled\tdisabled_reason\n"
+                         "A\tCorpus\tc\tcorpus\thttp://x/a.h5ad\t1\t\n"
+                         "B\tCorpus\tc\tcorpus\thttp://x/b.h5ad\t0\tHTTP 404\n"
+                         "C\tCorpus\tc\tcorpus\thttp://x/c.h5ad\t\t\n")
+            cfg = cfg_with(t, manifest=str(m))
+            self.assertEqual([r["profile_id"] for r in P.samples(cfg)], ["A", "C"])
+            self.assertEqual([r["profile_id"] for r in P.disabled_samples(cfg)], ["B"])
+            self.assertNotIn("B", [u.sample for u in P.stage_units(cfg, "01")])
+
+    def test_shipped_manifest_rows_have_enabled(self):
+        rows = P.read_tsv(HERE / "samples.tsv")
+        self.assertEqual(len(rows), 116)
+        for r in rows:
+            self.assertIn(r["enabled"], ("0", "1"))
+            if r["enabled"] == "0":
+                self.assertTrue(r["disabled_reason"])
