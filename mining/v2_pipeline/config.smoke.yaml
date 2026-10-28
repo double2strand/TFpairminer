@@ -41,6 +41,14 @@ rna:
 publish:
   dir: ${TFPM_V2P_SMOKE:-/tmp/tfpm_v2p_smoke}/out/publish/data
   commit: false
+fetch:                                  # stage 01 download hardening
+  max_parallel_per_host: 4              # concurrent downloads per host across ALL nodes (fcntl slots in OUT/state/fetch_slots); 0 = unlimited
+  attempts: 6                           # outer resume attempts (each resumes the .part with -C -), backoff doubles
+  backoff: 2                           # seconds before 2nd attempt (60,120,240,... capped 1800)
+  curl_retries: 10                      # curl --retry (with --retry-all-errors)
+  speed_limit: 1024                     # abort+resume if < speed_limit B/s for speed_time s (stall detection)
+  speed_time: 300
+  unlimited_hosts: []
 runner:
   local: {cpus: 8, mem_gb: 14, gpus: 0}
   wr: {rep_prefix: tfpm-v2-smoke, queue: "", gpu_queue: "", gpu_misc: "", retries: 0, poll_seconds: 10}

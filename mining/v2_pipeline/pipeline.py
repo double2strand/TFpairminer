@@ -275,9 +275,68 @@ def curl(url, dest, log):
             shutil.copy(src, dest)
         return dest
     tmp = Path(str(dest) + ".part")
-    run(f"curl -fL --retry 8 --retry-delay 20 -C - -sS -A {shlex.quote(UA)} -o {shlex.quote(str(tmp))} {shlex.quote(url)}", log)
+    F = FETCH
+    cmd = (f"curl -fL --http1.1 --retry {int(F['curl_retries'])} --retry-delay 20 --retry-all-errors "
+           f"--connect-timeout 60 --speed-limit {int(F['speed_limit'])} --speed-time {int(F['speed_time'])} "
+           f"-C - -sS -A {shlex.quote(UA)} -o {shlex.quote(str(tmp))} {shlex.quote(url)}")
+    host = re.sub(r"^[a-z]+://([^/:]+).*$", r"\1", url, flags=re.I).lower()
+    attempts = max(1, int(F["attempts"]))
+    with host_slot(host, log):
+        for i in range(1, attempts + 1):
+            try:
+                run(cmd, log); break
+            except RuntimeError as e:
+                if i == attempts or " (22)" in str(e):   # 22 = HTTP 4xx/5xx after curl's own retries: don't loop
+                    raise
+                wait = min(int(F["backoff"]) * 2 ** (i - 1), 1800)
+                have = tmp.stat().st_size if tmp.exists() else 0
+                with open(log, "a") as lf:
+                    lf.write(f"fetch attempt {i}/{attempts} failed ({e.args[0][:40]}); .part has {have} bytes; "
+                             f"resuming in {wait}s\n")
+                time.sleep(wait)
     os.replace(tmp, dest)
     return dest
+
+
+# fetch tuning (overridden from cfg `fetch:` by build_01); module-level so curl() keeps its signature
+FETCH = {"max_parallel_per_host": 4, "attempts": 6, "backoff": 60, "curl_retries": 10,
+         "speed_limit": 1024, "speed_time": 300, "slot_dir": None, "unlimited_hosts": []}
+
+
+class host_slot:
+    """Cross-node per-host download semaphore: N fcntl-locked slot files on shared (lustre) storage under
+    OUT/state/fetch_slots/<host>/. Works with wr/LSF because every unit runs on the same filesystem; a killed
+    job's lock is released by the kernel. Disabled when max_parallel_per_host <= 0 or slot_dir unset."""
+    def __init__(self, host, log):
+        self.host, self.log, self.fh = host, log, None
+
+    def __enter__(self):
+        n = int(FETCH.get("max_parallel_per_host") or 0)
+        if n <= 0 or not FETCH.get("slot_dir") or self.host in (FETCH.get("unlimited_hosts") or []):
+            return self
+        d = Path(FETCH["slot_dir"]) / self.host; d.mkdir(parents=True, exist_ok=True)
+        t0, noted = time.time(), False
+        while True:
+            for k in range(n):
+                fh = open(d / f"slot{k}", "a+")
+                try:
+                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    fh.close(); continue
+                fh.seek(0); fh.truncate(); fh.write(f"{socket.gethostname()} {os.getpid()} {time.strftime('%F %T')}\n"); fh.flush()
+                self.fh = fh
+                with open(self.log, "a") as lf:
+                    lf.write(f"fetch slot {k + 1}/{n} for {self.host} acquired after {round(time.time() - t0)}s\n")
+                return self
+            if not noted:
+                with open(self.log, "a") as lf:
+                    lf.write(f"waiting for a free {self.host} download slot (max {n} at once)\n")
+                noted = True
+            time.sleep(15)
+
+    def __exit__(self, *a):
+        if self.fh:
+            fcntl.flock(self.fh, fcntl.LOCK_UN); self.fh.close(); self.fh = None
 
 
 def fetch_verified(url, dest, log, size="", md5sum="", sha="", lock=None):
@@ -356,6 +415,8 @@ def st01(cfg):
         (ref / "refs.json").write_text(json.dumps({**meta, "fasta": str(cfg.fasta), "genome_url": R["genome_fasta_url"]}, indent=1))
     units.append(Unit("01", "refs", refs, [cfg.out / "ref" / "refs.json", cfg.out / "ref" / "hg38.chrom.sizes",
                                            cfg.out / "ref" / "fold_0.json", cfg.fasta]))
+    FETCH.update({k: v for k, v in (cfg.get("fetch") or {}).items() if v is not None})
+    FETCH["slot_dir"] = str(cfg.out / "state" / "fetch_slots")
     for r in samples(cfg):
         def fetch(u, log, r=r):
             d = cfg.out / "inputs" / r["profile_id"]; lock = d / "inputs.lock.tsv"

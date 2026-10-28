@@ -62,6 +62,14 @@ publish:
   dir: docs/v2/data                       # stage 10 copies the aggregated site here (never touches docs/ v1)
   commit: false                           # stage 10 never commits; see RUNBOOK 'Publish'
 
+fetch:                                  # stage 01 download hardening
+  max_parallel_per_host: 4              # concurrent downloads per host across ALL nodes (fcntl slots in OUT/state/fetch_slots); 0 = unlimited
+  attempts: 6                           # outer resume attempts (each resumes the .part with -C -), backoff doubles
+  backoff: 60                           # seconds before 2nd attempt (60,120,240,... capped 1800)
+  curl_retries: 10                      # curl --retry (with --retry-all-errors)
+  speed_limit: 1024                     # abort+resume if < speed_limit B/s for speed_time s (stall detection)
+  speed_time: 300
+  unlimited_hosts: []
 runner:
   local: {cpus: 32, mem_gb: 240, gpus: 0} # workstation mode (256 GB box): concurrency limited by these
   wr:

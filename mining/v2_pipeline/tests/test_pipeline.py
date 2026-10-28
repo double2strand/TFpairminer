@@ -178,3 +178,28 @@ class TestDisabledRows(unittest.TestCase):
             self.assertIn(r["enabled"], ("0", "1"))
             if r["enabled"] == "0":
                 self.assertTrue(r["disabled_reason"])
+
+
+def test_host_slot_limits_and_curl_resume(tmp_path, monkeypatch):
+    import pipeline as P, threading, time as _t
+    monkeypatch.setitem(P.FETCH, "slot_dir", str(tmp_path / "slots"))
+    monkeypatch.setitem(P.FETCH, "max_parallel_per_host", 2)
+    log = tmp_path / "l.log"; cur = [0]; peak = [0]; lk = threading.Lock()
+    _sl = _t.sleep; monkeypatch.setattr(P.time, "sleep", lambda s: _sl(0.01))
+    def w():
+        with P.host_slot("h", log):
+            with lk: cur[0] += 1; peak[0] = max(peak[0], cur[0])
+            _sl(0.05)
+            with lk: cur[0] -= 1
+    # flock is per open-file-description, so threads contend like separate processes
+    ts = [threading.Thread(target=w) for _ in range(6)]; [t.start() for t in ts]; [t.join() for t in ts]
+    assert peak[0] <= 2
+    calls = []
+    def fake_run(cmd, log):
+        calls.append(cmd)
+        if len(calls) < 3: raise RuntimeError("command failed (92): curl")
+        Path(tmp_path / "f.bin.part").write_text("x")
+    monkeypatch.setattr(P, "run", fake_run); monkeypatch.setitem(P.FETCH, "backoff", 0)
+    P.curl("https://h/f.bin", tmp_path / "f.bin", log)
+    assert len(calls) == 3 and "--http1.1" in calls[0] and "--retry-all-errors" in calls[0] and "-C -" in calls[0]
+    assert (tmp_path / "f.bin").read_text() == "x"

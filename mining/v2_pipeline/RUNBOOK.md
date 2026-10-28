@@ -254,3 +254,13 @@ For a dry publish, set `publish.dir: /lustre/.../portal_preview/data` and serve 
   - full-size data;
   - strict atlas screens through the pipeline (`run_remote.sh` itself was used before);
   - the Apptainer build.
+
+## Stage 01 download failures (curl 92 / 56 from health.tsinghua.edu.cn)
+Downloads force HTTP/1.1, retry all errors, detect stalls (<1 KB/s for 5 min), and make 6 outer attempts with
+doubling backoff. Each attempt resumes the `.part` file, and sizes are verified afterwards. Each host is limited to
+`fetch.max_parallel_per_host` (default 4) downloads across all nodes. The limit uses fcntl slot files in
+`OUT/state/fetch_slots/<host>/`, and units waiting for a slot log "waiting for a free ... slot". To replace a run
+that started on the old code:
+    wr kill -i tfpm-v2 -z              # stop old jobs (substring match on the rep group)
+    wr remove -i tfpm-v2 -z            # drop them from the queue so the new submission is not de-duplicated
+    git pull && ./tfpm v2 pipeline --config $C resume --stage 00-03b --runner wr   # clears .failed/.running markers, resubmits
