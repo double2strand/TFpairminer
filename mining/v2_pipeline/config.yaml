@@ -45,6 +45,7 @@ chrombpnet:
   pairs_extra: "--min-windows 8 --ablate-windows 40 --seeds 2 --site-pct 0.75"
   modisco_max_seqlets: 20000
   container: ""                           # path to kundajelab/chrombpnet .sif -> stages 04/05/05b/06 run via apptainer (recommended)
+  extra_pythonpath: ""                    # dir(s) prepended to PYTHONPATH in the container (pip install --target; e.g. anndata)
   module_load: ""                         # e.g. "module load ISG/apptainer/1.4.0" (run before apptainer exec)
   container_binds: []                     # extra -B paths; the repo and 'out' are always bound
 

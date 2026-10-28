@@ -115,9 +115,24 @@ class TestSafety(unittest.TestCase):
         self.assertIn("apptainer exec --nv -B", g); self.assertIn("chrombpnet.sif python", g)
         self.assertIn("module load ISG/apptainer/1.4.0", g); self.assertIn("/lustre/scratch126", g)
         self.assertNotIn("--nv", m)
+        self.assertIn("PYTHONPATH=/lustre/scratch126/gengen/projects_v2/ncap_selex/tfpm/cbp_extra:", g)
         a4 = " ".join(P.wr_res(c, "04")); a5 = " ".join(P.wr_res(c, "05")); a3 = " ".join(P.wr_res(c, "03"))
         self.assertIn("--queue gpu-basement", a4); self.assertIn('-gpu "num=1"', a4)
         self.assertIn("--queue gpu ", a5 + " "); self.assertIn("--queue long", a3); self.assertNotIn("-gpu", a3)
+
+
+    def test_write_tsv_parallel(self):
+        import threading
+        with tempfile.TemporaryDirectory() as t:
+            p = Path(t) / "m.tsv"; errs = []
+            def w():
+                try:
+                    for _ in range(50):
+                        P.write_tsv(p, [{"a": 1}], ["a"])
+                except Exception as e:
+                    errs.append(e)
+            th = [threading.Thread(target=w) for _ in range(8)]; [x.start() for x in th]; [x.join() for x in th]
+            self.assertEqual(errs, []); self.assertEqual(p.read_text(), "a\n1\n")
 
 
 class TestTargetedRnaLocal(unittest.TestCase):

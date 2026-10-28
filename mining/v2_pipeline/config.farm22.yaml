@@ -47,6 +47,7 @@ chrombpnet:
   pairs_extra: "--min-windows 8 --ablate-windows 40 --seeds 2 --site-pct 0.75"
   modisco_max_seqlets: 20000
   container: /lustre/scratch126/gengen/projects_v2/ncap_selex/tfpm/containers/chrombpnet.sif
+  extra_pythonpath: /lustre/scratch126/gengen/projects_v2/ncap_selex/tfpm/cbp_extra   # anndata 0.8.0 etc. (RUNBOOK 1b)
   module_load: "module load ISG/apptainer/1.4.0"
   container_binds: [/lustre/scratch126]     # repo + out are always bound; add others if inputs live elsewhere
 

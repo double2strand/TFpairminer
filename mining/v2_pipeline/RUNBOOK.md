@@ -103,6 +103,15 @@ apptainer pull $B/containers/chrombpnet.sif docker://kundajelab/chrombpnet:lates
 bsub -q gpu -gpu "num=1" -M 16000 -R "select[mem>16000] rusage[mem=16000]" -Is \
   apptainer exec --nv $B/containers/chrombpnet.sif python -c "import tensorflow as tf; print(tf.__version__, tf.config.list_physical_devices('GPU'))"
 cd $B/TFpairminer && git pull
+# the image lacks anndata (needed by motif_cooccurrence/engine and make_smoke.py): install a side dir once
+apptainer exec -B /lustre/scratch126 $B/containers/chrombpnet.sif \
+  pip install --no-deps --target $B/cbp_extra "anndata==0.8.0" natsort packaging h5py==3.7.0
+# smoke test on farm22 (synthetic data generated inside the image: needs TF for the toy model)
+export TFPM_V2P_SMOKE=/tmp/tfpm_v2p_smoke TFPM_PY_MAIN=$B/envs/main/bin/python TFPM_PY_RNA=$B/envs/rna/bin/python TFPM_PY_GPU=$B/envs/main/bin/python
+apptainer exec -B /lustre/scratch126,/tmp --env PYTHONPATH=$B/cbp_extra $B/containers/chrombpnet.sif \
+  python mining/v2_pipeline/smoke/make_smoke.py --out $TFPM_V2P_SMOKE/data
+./tfpm v2 pipeline --config mining/v2_pipeline/config.smoke.yaml run --stage all --runner local
+./tfpm v2 pipeline --config mining/v2_pipeline/config.smoke.yaml status     # expect 0 failed
 export TFPM_V2P_PY=$B/envs/main/bin/python          # runs the driver / expanders
 C=mining/v2_pipeline/config.farm22.yaml               # out defaults to $B/v2p_out (override with TFPM_V2P_OUT)
 wr manager start -s lsf
@@ -123,6 +132,9 @@ What `config.farm22.yaml` sets up:
   - GPU jobs pass `--misc '-gpu "num=1"'` to wr. wr itself turns `-m` into `-M`/`-R rusage[mem]`, so do not put memory in `misc`.
   - `override: higher` stops wr's learned estimates from going below the configured memory and time.
 - **Expanders:** the expander jobs get no explicit queue, so wr picks one from their walltime.
+- **Extra python packages:** `chrombpnet.extra_pythonpath` (`$B/cbp_extra`) is put in front of `PYTHONPATH` inside the image,
+  so the anndata 0.8.0 / natsort / packaging / h5py 3.7.0 installed with the `pip --target` command above are importable.
+  It accepts one path or a list.
 - **Extra binds:** if inputs live outside the repo, `out` and `/lustre/scratch126`, add them to `chrombpnet.container_binds`.
 
 Not yet verified on farm22: whether the repo's TFpairminer code runs end-to-end under the image's python 3.8 / TF 2.8

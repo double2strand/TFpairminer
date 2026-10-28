@@ -22,7 +22,7 @@ its outputs before writing .done, and is skipped when .done exists (idempotent; 
 """
 from __future__ import annotations
 
-import argparse, csv, gzip, hashlib, json, os, re, shlex, shutil, subprocess, sys, tarfile, threading, time, traceback
+import argparse, csv, fcntl, socket, uuid, gzip, hashlib, json, os, re, shlex, shutil, subprocess, sys, tarfile, threading, time, traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -108,8 +108,11 @@ class Cfg:
             pre = ("{ type module >/dev/null 2>&1 || source /etc/profile.d/modules.sh >/dev/null 2>&1 || true; }; "
                    f"{C['module_load']} >/dev/null 2>&1; ")
         nv = "--nv " if gpu else ""
+        extra = [os.path.expandvars(str(x)) for x in (C.get("extra_pythonpath") or []) ] if isinstance(C.get("extra_pythonpath"), list) \
+            else [os.path.expandvars(str(C["extra_pythonpath"]))] if C.get("extra_pythonpath") else []
+        pypath = ":".join(extra + [str(MINING)])      # e.g. pip --target dir with anndata (missing from the image)
         return (f"{pre}{C.get('container_exec', 'apptainer')} exec {nv}-B {shlex.quote(','.join(binds))} "
-                f"--env PYTHONPATH={shlex.quote(str(MINING))} {shlex.quote(str(sif))} {C.get('container_python', 'python')}")
+                f"--env PYTHONPATH={shlex.quote(pypath)} {shlex.quote(str(sif))} {C.get('container_python', 'python')}")
 
     def py(self, which):
         p = self.get("python", which) or sys.executable
@@ -141,7 +144,9 @@ def read_tsv(p):
 
 
 def write_tsv(p, rows, fields):
-    p = Path(p); p.parent.mkdir(parents=True, exist_ok=True); tmp = p.with_suffix(p.suffix + ".tmp")
+    # unique tmp per writer: parallel units (threads or wr jobs on other hosts) may write the same file
+    p = Path(p); p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f".{p.name}.{socket.gethostname()}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex[:8]}.tmp")
     with open(tmp, "w", newline="") as f:
         w = csv.DictWriter(f, fields, delimiter="\t", lineterminator="\n", extrasaction="ignore"); w.writeheader(); w.writerows(rows)
     os.replace(tmp, p)
@@ -367,7 +372,12 @@ def run_manifest(cfg):
              "kind": r["kind"], "inputs": ",".join(local_inputs(cfg, r)), "celltype_col": r.get("celltype_col", "")}
             for r in read_tsv(cfg.path_(cfg["manifest"]))]
     p = cfg.out / "run_manifest.tsv"
-    write_tsv(p, rows, ["sample_id", "dataset", "context", "kind", "inputs", "celltype_col"])
+    with open(cfg.out / ".run_manifest.lock", "w") as lk:      # serialise writers (flock; Lustre client may make it node-local)
+        try:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+        except OSError:
+            pass
+        write_tsv(p, rows, ["sample_id", "dataset", "context", "kind", "inputs", "celltype_col"])
     return p
 
 
