@@ -305,7 +305,10 @@ def stage_modisco(a):
     log(f"modisco on {len(oh)} x {oh.shape[1]} bp")
     pos, neg = modiscolite.tfmodisco.TFMoDISco(hypothetical_contribs=hyp, one_hot=oh, max_seqlets_per_metacluster=a.max_seqlets,
                                                sliding_window_size=20, flank_size=5, target_seqlet_fdr=0.05, n_leiden_runs=2)
-    modiscolite.io.save_hdf5(str(out / "modisco.h5"), pos, neg, 5)
+    try:
+        modiscolite.io.save_hdf5(str(out / "modisco.h5"), pos, neg, 5)
+    except TypeError:  # older modiscolite (e.g. kundajelab/chrombpnet image) takes 3 args
+        modiscolite.io.save_hdf5(str(out / "modisco.h5"), pos, neg)
     motifs = E.read_meme(a.meme); rows = []
     for sign, pats in (("pos", pos), ("neg", neg)):
         for k, p in enumerate(pats or []):
