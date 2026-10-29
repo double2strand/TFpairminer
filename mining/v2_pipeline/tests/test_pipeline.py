@@ -203,3 +203,30 @@ def test_host_slot_limits_and_curl_resume(tmp_path, monkeypatch):
     P.curl("https://h/f.bin", tmp_path / "f.bin", log)
     assert len(calls) == 3 and "--http1.1" in calls[0] and "--retry-all-errors" in calls[0] and "-C -" in calls[0]
     assert (tmp_path / "f.bin").read_text() == "x"
+
+
+def test_fetch_worker_pool_plan_and_claims(tmp_path, monkeypatch):
+    import pipeline as P, threading
+    c = P.Cfg(P.HERE / "config.farm22.yaml"); c.c["out"] = str(tmp_path)
+    c.out = tmp_path
+    us = [u for u in P.stage_units(c, "01")]
+    plan, pooled = P.wr_plan(c, "01", us)
+    pools = [(a, l) for a, l in plan if "-pool-" in a[3]]
+    assert pooled and pools
+    for a, lines in pools:
+        assert len(lines) <= 4 and all("fetch-worker --host" in l for l in lines)
+        j = " ".join(a); assert "-t 168h" in j and "--queue basement" in j
+    assert all(u.uid not in pooled for u in us if u.uid == "refs")
+    # exactly-once execution across concurrent workers
+    host = next(iter({P.fetch_pool_host(c, u) for u in us} - {""}))
+    mine = [u for u in us if P.fetch_pool_host(c, u) == host]
+    seen = []; lk = threading.Lock()
+    def fake_exec(cfg, u, force=False):
+        with lk: seen.append(u.uid)
+        P.mk(cfg, "01", u.uid, "done").parent.mkdir(parents=True, exist_ok=True)
+        P.mk(cfg, "01", u.uid, "done").write_text("ok"); return "done"
+    monkeypatch.setattr(P, "exec_unit", fake_exec)
+    ts = [threading.Thread(target=P.fetch_worker, args=(c, host, k)) for k in range(4)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert sorted(seen) == sorted(u.uid for u in mine)
+    assert P.fetch_worker(c, host) == 0 and len(seen) == len(mine)   # resubmit is a no-op

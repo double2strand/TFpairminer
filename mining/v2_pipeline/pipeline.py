@@ -279,7 +279,7 @@ def curl(url, dest, log):
     cmd = (f"curl -fL --http1.1 --retry {int(F['curl_retries'])} --retry-delay 20 --retry-all-errors "
            f"--connect-timeout 60 --speed-limit {int(F['speed_limit'])} --speed-time {int(F['speed_time'])} "
            f"-C - -sS -A {shlex.quote(UA)} -o {shlex.quote(str(tmp))} {shlex.quote(url)}")
-    host = re.sub(r"^[a-z]+://([^/:]+).*$", r"\1", url, flags=re.I).lower()
+    host = url_host(url)
     attempts = max(1, int(F["attempts"]))
     with host_slot(host, log):
         for i in range(1, attempts + 1):
@@ -300,7 +300,61 @@ def curl(url, dest, log):
 
 # fetch tuning (overridden from cfg `fetch:` by build_01); module-level so curl() keeps its signature
 FETCH = {"max_parallel_per_host": 4, "attempts": 6, "backoff": 60, "curl_retries": 10,
-         "speed_limit": 1024, "speed_time": 300, "slot_dir": None, "unlimited_hosts": []}
+         "speed_limit": 1024, "speed_time": 300, "slot_dir": None, "unlimited_hosts": [],
+         # wr runner: units on slot-limited hosts are NOT submitted one job per unit (they would sit inside their
+         # walltime waiting for a slot and get killed mid-download). Instead max_parallel_per_host worker jobs per
+         # host each loop over that host's pending units (claimed with fcntl locks on lustre), one download at a time.
+         "worker_pool": True, "worker_time": "168h", "worker_queue": "basement", "worker_mem": 4, "worker_cpus": 1,
+         "worker_retries": 3, "expander_time": "336h"}
+
+
+def url_host(url):
+    return re.sub(r"^[a-z]+://([^/:]+).*$", r"\1", url, flags=re.I).lower() if "://" in url else ""
+
+
+def limited_host(h):
+    return bool(h) and int(FETCH.get("max_parallel_per_host") or 0) > 0 and h not in (FETCH.get("unlimited_hosts") or [])
+
+
+def fetch_pool_host(cfg, u):
+    """Slot-limited host whose downloads dominate stage-01 unit u (first limited URL), or '' (submit normally)."""
+    if u.stage != "01" or not u.sample or not FETCH.get("worker_pool", True):
+        return ""
+    for r in samples(cfg):
+        if r["profile_id"] == u.sample:
+            for col in ("inputs", "fragments", "cbp_pretrained"):
+                for url in (r.get(col) or "").split(","):
+                    if limited_host(url_host(url.strip())):
+                        return url_host(url.strip())
+    return ""
+
+
+def fetch_worker(cfg, host, k=0):
+    """wr worker for one slot-limited host: claim the next pending stage-01 unit of that host (non-blocking fcntl lock
+    in OUT/state/fetch_claims), run it, repeat until none are left. Safe to run many/resubmit: done/skipped/failed
+    units are left alone, a unit claimed by a live worker is skipped, a dead worker's claim is released by the kernel
+    (its stale .running marker is simply re-run; curl resumes the .part)."""
+    units = [u for u in stage_units(cfg, "01") if fetch_pool_host(cfg, u) == host]
+    cd = cfg.out / "state" / "fetch_claims"; cd.mkdir(parents=True, exist_ok=True)
+    print(f"fetch worker {k} for {host}: {len(units)} units", flush=True)
+    while True:
+        ran = False
+        for u in units:
+            if unit_state(cfg, "01", u.uid) in ("done", "skipped", "failed"):
+                continue
+            fh = open(cd / f"{slug(u.uid)}.lock", "a+")
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                fh.close(); continue
+            try:
+                if unit_state(cfg, "01", u.uid) not in ("done", "skipped", "failed"):
+                    print(time.strftime("%T"), "start", u.uid, flush=True)
+                    print(time.strftime("%T"), u.uid, exec_unit(cfg, u), flush=True); ran = True
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN); fh.close()
+        if not ran:
+            return 0
 
 
 class host_slot:
@@ -415,8 +469,7 @@ def st01(cfg):
         (ref / "refs.json").write_text(json.dumps({**meta, "fasta": str(cfg.fasta), "genome_url": R["genome_fasta_url"]}, indent=1))
     units.append(Unit("01", "refs", refs, [cfg.out / "ref" / "refs.json", cfg.out / "ref" / "hg38.chrom.sizes",
                                            cfg.out / "ref" / "fold_0.json", cfg.fasta]))
-    FETCH.update({k: v for k, v in (cfg.get("fetch") or {}).items() if v is not None})
-    FETCH["slot_dir"] = str(cfg.out / "state" / "fetch_slots")
+    load_fetch(cfg)
     for r in samples(cfg):
         def fetch(u, log, r=r):
             d = cfg.out / "inputs" / r["profile_id"]; lock = d / "inputs.lock.tsv"
@@ -954,7 +1007,8 @@ def wr_commands(cfg, stages):
     for s in stages:
         dep = ["-d", f"{P}-exp-{prev}"] if prev else []
         line = f"{me(cfg)} expand --stage {s}"
-        args = ["wr", "add", "-i", f"{P}-exp-{s}", "-e", f"{P}-exp-{s}", *dep, "--cpus", "1", "-m", "2G", "-t", "72h", "-r", "0"]
+        t = str((cfg.get("fetch") or {}).get("expander_time") or FETCH["expander_time"]) if s == "01" else "72h"
+        args = ["wr", "add", "-i", f"{P}-exp-{s}", "-e", f"{P}-exp-{s}", *dep, "--cpus", "1", "-m", "2G", "-t", t, "-r", "0"]
         cmds.append((s, line, args)); prev = s
     return cmds
 
@@ -977,21 +1031,51 @@ def _secs(t):
     return float(m.group(1)) * {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)] if m else 86400
 
 
+def load_fetch(cfg):
+    FETCH.update({k: v for k, v in (cfg.get("fetch") or {}).items() if v is not None})
+    FETCH["slot_dir"] = str(cfg.out / "state" / "fetch_slots")
+
+
+def wr_worker_res():
+    return ["--cpus", str(FETCH["worker_cpus"]), "-m", f"{FETCH['worker_mem']}G", "-t", str(FETCH["worker_time"]),
+            "-r", str(FETCH["worker_retries"])] + (["--queue", str(FETCH["worker_queue"])] if FETCH.get("worker_queue") else [])
+
+
+def wr_plan(cfg, s, units):
+    """[(args, lines)] wr adds for these pending units: per-unit jobs, plus worker pools for slot-limited fetch hosts."""
+    W = cfg.get("runner", "wr"); P = W["rep_prefix"]; load_fetch(cfg)
+    pools = {}; plain = []
+    for u in units:
+        h = fetch_pool_host(cfg, u) if s == "01" else ""
+        (pools.setdefault(h, []) if h else plain).append(u)
+    out = []
+    if plain:
+        out.append((["wr", "add", "-i", f"{P}-{s}", "-e", f"{P}-{s}", *wr_res(cfg, s)], [wr_unit_line(cfg, s, u.uid) for u in plain]))
+    for h, us in sorted(pools.items()):
+        n = max(1, min(int(FETCH["max_parallel_per_host"]), len(us))); g = f"{P}-{s}-pool-{slug(h)}"
+        out.append((["wr", "add", "-i", g, "-e", g, *wr_worker_res()],
+                    [f"{me(cfg)} fetch-worker --host {shlex.quote(h)} --worker {k}" for k in range(n)]))
+    return out, {u.uid for us in pools.values() for u in us}
+
+
 def expand(cfg, s):
     """Runs as a wr job: add this stage's units (rep group <prefix>-<stage>), then wait for their markers."""
     W = cfg.get("runner", "wr"); P = W["rep_prefix"]
     units = [u for u in stage_units(cfg, s) if unit_state(cfg, s, u.uid) not in ("done", "skipped")]
+    pooled = set()
     if units:
         for u in units:
             mk(cfg, s, u.uid, "failed").unlink(missing_ok=True)
-        lines = "\n".join(wr_unit_line(cfg, s, u.uid) for u in units) + "\n"
-        args = ["wr", "add", "-i", f"{P}-{s}", "-e", f"{P}-{s}", *wr_res(cfg, s)]
-        print("+", " ".join(shlex.quote(a) for a in args), f"<<< {len(units)} units", flush=True)
-        subprocess.run(args, input=lines, text=True, check=True)
+        plan, pooled = wr_plan(cfg, s, units)
+        for args, lines in plan:
+            print("+", " ".join(shlex.quote(a) for a in args), f"<<< {len(lines)} jobs", flush=True)
+            subprocess.run(args, input="\n".join(lines) + "\n", text=True, check=True)
     while True:
         st = {u.uid: unit_state(cfg, s, u.uid) for u in units}
-        limit = _secs(cfg.res(s).get("time", "24h")) * (1 + int(W.get("retries", 0))) + 3600
-        for uid, v in st.items():   # a SIGKILLed job (OOM / walltime) leaves a stale .running marker
+        limit0 = _secs(cfg.res(s).get("time", "24h")) * (1 + int(W.get("retries", 0))) + 3600
+        limitp = _secs(FETCH["worker_time"]) * (1 + int(FETCH["worker_retries"])) + 3600
+        for uid, v in st.items():
+            limit = limitp if uid in pooled else limit0   # a SIGKILLed job (OOM / walltime) leaves a stale .running marker
             r = mk(cfg, s, uid, "running")
             if v == "running" and r.exists() and time.time() - r.stat().st_mtime > limit:
                 mk(cfg, s, uid, "failed").write_text("stale .running marker (job killed: OOM/walltime?)\n"); r.unlink(missing_ok=True)
@@ -1059,6 +1143,7 @@ def main(argv=None):
     sp.add_parser("status").add_argument("--only", default="")
     e = sp.add_parser("exec"); e.add_argument("--stage", required=True); e.add_argument("--unit", required=True); e.add_argument("--force", action="store_true")
     x = sp.add_parser("expand"); x.add_argument("--stage", required=True)
+    fw = sp.add_parser("fetch-worker"); fw.add_argument("--host", required=True); fw.add_argument("--worker", type=int, default=0)
     sp.add_parser("stages")
     a = ap.parse_args(argv)
     cfg = Cfg(a.config)
@@ -1076,6 +1161,8 @@ def main(argv=None):
         if not u:
             print(f"no unit {a.unit} in stage {s}"); return 2
         st = exec_unit(cfg, u[0], a.force); print(st); return 1 if st == "failed" else 0
+    if a.cmd == "fetch-worker":
+        load_fetch(cfg); return fetch_worker(cfg, a.host, a.worker)
     if a.cmd == "expand":
         return expand(cfg, norm_stage(a.stage))
     stages = expand_stages(a.stage)
@@ -1091,13 +1178,17 @@ def main(argv=None):
         print("\n# units each expander will add now (dynamic stages are re-expanded at run time):")
         for s in stages:
             us = stage_units(cfg, s); todo = [u for u in us if unit_state(cfg, s, u.uid) not in ("done", "skipped")]
-            args = ["wr", "add", "-i", f"{cfg.get('runner', 'wr')['rep_prefix']}-{s}", "-e", f"{cfg.get('runner', 'wr')['rep_prefix']}-{s}", *wr_res(cfg, s)]
             note = " (+ profiles discovered after stage 02)" if s in DYNAMIC else ""
-            print(f"## {s} {STAGE_NAMES[s]}: {len(us)} units, {len(todo)} pending{note}\n#   {' '.join(shlex.quote(x) for x in args)}")
-            for u in todo[:3]:
-                print("    " + wr_unit_line(cfg, s, u.uid))
-            if len(todo) > 3:
-                print(f"    ... ({len(todo) - 3} more)")
+            print(f"## {s} {STAGE_NAMES[s]}: {len(us)} units, {len(todo)} pending{note}")
+            plan, pooled = wr_plan(cfg, s, todo) if todo else ([], set())
+            if pooled:
+                print(f"#   {len(pooled)} units on slot-limited hosts run via worker pools (no per-unit jobs)")
+            for args, lines in plan:
+                print(f"#   {' '.join(shlex.quote(x) for x in args)}")
+                for l in lines[:3]:
+                    print("    " + l)
+                if len(lines) > 3:
+                    print(f"    ... ({len(lines) - 3} more)")
         return 0
     if a.runner == "wr":
         return submit_wr(cfg, stages)

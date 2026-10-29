@@ -72,6 +72,14 @@ fetch:                                  # stage 01 download hardening
   speed_limit: 1024                     # abort+resume if < speed_limit B/s for speed_time s (stall detection)
   speed_time: 300
   unlimited_hosts: []
+  # wr: units on slot-limited hosts run as max_parallel_per_host long-lived worker jobs per host that pull the next
+  # pending unit (fcntl claim on lustre), so no job waits for a slot inside its walltime. Resumable/idempotent.
+  worker_pool: true
+  worker_time: 168h                     # per worker job (wr -t); a worker downloads many units back to back
+  worker_queue: basement                # LSF queue for the workers (no short walltime cap)
+  worker_mem: 4                         # GB
+  worker_retries: 3                     # wr -r for a worker (a killed worker resumes the .part on retry)
+  expander_time: 336h                   # wr -t of the stage-01 expander job that waits for all fetch units
 runner:
   local: {cpus: 32, mem_gb: 240, gpus: 0} # workstation mode (256 GB box): concurrency limited by these
   wr:

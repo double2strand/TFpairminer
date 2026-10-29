@@ -259,7 +259,13 @@ For a dry publish, set `publish.dir: /lustre/.../portal_preview/data` and serve 
 Downloads force HTTP/1.1, retry all errors, detect stalls (<1 KB/s for 5 min), and make 6 outer attempts with
 doubling backoff. Each attempt resumes the `.part` file, and sizes are verified afterwards. Each host is limited to
 `fetch.max_parallel_per_host` (default 4) downloads across all nodes. The limit uses fcntl slot files in
-`OUT/state/fetch_slots/<host>/`, and units waiting for a slot log "waiting for a free ... slot". To replace a run
+`OUT/state/fetch_slots/<host>/`.
+With `--runner wr`, units on a slot-limited host are not submitted one job per unit (they used to wait for a slot
+inside their walltime and were killed at 12 h mid-download). The stage-01 expander instead adds
+`max_parallel_per_host` worker jobs per host (rep group `tfpm-v2-01-pool-<host>`, `fetch.worker_time` 168h on
+`fetch.worker_queue` basement). Each worker runs `pipeline.py fetch-worker --host H`: it claims the next pending unit
+with an fcntl lock in `OUT/state/fetch_claims/`, downloads it, and repeats until none are left. Resubmitting is safe:
+done units are skipped, and a killed worker's unit is resumed from its `.part`. To replace a run
 that started on the old code:
     wr kill -i tfpm-v2 -z              # stop old jobs (substring match on the rep group)
     wr remove -i tfpm-v2 -z            # drop them from the queue so the new submission is not de-duplicated
